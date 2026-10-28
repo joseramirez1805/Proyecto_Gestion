@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchProducts } from '../services/firebase'
 import { prototypeUrl, publishProducts } from '../services/prototypeService'
 
-function PrototypeFrame() {
+function PrototypeFrame({ profile }) {
   const frameRef = useRef(null)
   const [status, setStatus] = useState('loading')
 
@@ -13,6 +13,10 @@ function PrototypeFrame() {
       .then((products) => {
         if (!active) return
         publishProducts(frameRef.current, products)
+        frameRef.current?.contentWindow?.postMessage(
+          { type: 'farallones:session', profile },
+          window.location.origin,
+        )
         setStatus('ready')
       })
       .catch((error) => {
@@ -23,9 +27,13 @@ function PrototypeFrame() {
     return () => {
       active = false
     }
-  }, [])
+  }, [profile])
 
   function handleLoad() {
+    frameRef.current?.contentWindow?.postMessage(
+      { type: 'farallones:session', profile },
+      window.location.origin,
+    )
     fetchProducts()
       .then((products) => {
         publishProducts(frameRef.current, products)

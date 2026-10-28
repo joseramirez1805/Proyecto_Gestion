@@ -42,6 +42,7 @@ function initial() {
   return {
     clock: T(13, 10),
     view: 'a',
+    profile: null,
     A: {
       screen: 'panel', confirming: null, nextId: 244, staff: 14, waiterTab: 'mesas',
       draft: { mesa: 12, items: {} },
@@ -324,7 +325,7 @@ function aWaiter() {
   const unread = A.notices.filter(n => !n.mine && dishById(n.dish)?.st === 'off');
   const lateMine = mine.filter(isLate);
   const tab = A.waiterTab;
-  let body = '';
+  let body;
   if (tab === 'mesas') {
     const alerts = unread.map(n => `<div class="alert a-dark">${ic('ban', 22, '#fff')}<div class="grow"><span class="tt">Se agotó: ${esc(dishById(n.dish).name)}</span><span style="font-size:12px;color:#D9DCD9">Cocina · ${hm(n.t)} · ya no lo ofrezcas</span></div><button class="btn sm" style="background:#fff;border-color:#fff;color:var(--ink)" data-act="aAck" data-arg="${n.id}">Entendido</button></div>`).join('')
       + lateMine.map(o => `<div class="alert a-bad" style="border:1px solid var(--bad-line)">${ic('clock', 22, 'var(--bad)')}<div class="grow"><span class="tt">Mesa ${o.mesa} · el pedido va en ${elapsed(o)} min</span><span style="font-size:12px;color:var(--bad-ink)">Cocina ya lo ve como retrasado. Avísale a la mesa.</span></div></div>`).join('');
@@ -528,7 +529,7 @@ function viewC() {
     ['En la <b>carta</b>, abre el churrasco, elige término y acompañamiento, y agrégalo con un ajiaco.', 'Envía el pedido: en unos segundos llega al <b>pase</b>.', 'Revisa la lista de chequeo. Si un plato está frío, caliéntalo antes de despachar.', 'Despacha y mira el seguimiento en el celular. Con <b>+5 min</b> puedes simular una demora.'])}
   <div class="stage">
     <div style="min-width:0"><p class="caption">C3 · Estación de pase</p>${cPase()}</div>
-    <div class="phone-wrap"><p class="caption">${C.phone === 'carta' ? 'C1 · Carta en la mesa' : 'C2 · Seguimiento del pedido'}</p>${cPhone()}</div>
+    <div class="phone-wrap"><p class="caption">${C.phone === 'carta' ? 'C1 · App del socio · Carta en la mesa' : 'C2 · App del socio · Seguimiento del pedido'}</p>${cPhone()}</div>
   </div>`;
 }
 
@@ -645,7 +646,7 @@ function appHead(t, who, chip) {
 
 /* ---------- acciones ---------- */
 const H = {
-  view: v => { S.view = v; try { history.replaceState(null, '', '#' + v); } catch (e) {} window.scrollTo({ top: 0 }); },
+  view: v => { S.view = v; try { history.replaceState(null, '', '#' + v); } catch { location.hash = v; } window.scrollTo({ top: 0 }); },
   tick: n => { S.clock += Number(n); toast(`Reloj de la demo: ${hmp(S.clock)}`); },
   reset: () => { timers.forEach(id => { clearTimeout(id); clearInterval(id); }); timers.clear(); const v = S.view; S = initial(); S.view = v; toast('La demo volvió al inicio'); },
 
@@ -721,6 +722,10 @@ function render() {
   const ae = document.activeElement, fk = ae && ae.dataset && ae.dataset.act ? ae.dataset.act + '|' + (ae.dataset.arg || '') + '|' + (ae.id || '') : null;
   $('#clock').textContent = hmp(S.clock);
   ['a', 'b', 'c'].forEach(v => $('#tab-' + v).setAttribute('aria-selected', String(S.view === v)));
+  const tabs = document.querySelector('.ptabs');
+  if (tabs) tabs.hidden = Boolean(S.profile);
+  const profileLabel = $('#session-profile');
+  if (profileLabel) profileLabel.textContent = S.profile ? `Vista de ${S.profile.label}` : 'Prototipos de Alimentos y Bebidas';
   $('#view').innerHTML = S.view === 'a' ? viewA() : S.view === 'b' ? viewB() : viewC();
   document.querySelectorAll('[data-scroll]').forEach(el => { if (keep[el.dataset.scroll] != null) el.scrollTop = keep[el.dataset.scroll]; });
   if (fk) { const [act, arg, id] = fk.split('|'); const el = id ? document.getElementById(id) : [...document.querySelectorAll(`[data-act="${act}"]`)].find(x => (x.dataset.arg || '') === arg); if (el && !el.disabled) el.focus({ preventScroll: true }); }
@@ -742,8 +747,16 @@ document.addEventListener('input', e => { if (e.target.dataset.act === 'cNota') 
 const h = (location.hash || '').replace('#', '');
 if (['a', 'b', 'c'].includes(h)) S.view = h;
 window.addEventListener('message', event => {
-  if (event.origin !== location.origin || event.data?.type !== 'farallones:products-loaded') return;
-  applyFirebaseProducts(event.data.products);
+  if (event.origin !== location.origin) return;
+  if (event.data?.type === 'farallones:products-loaded') {
+    applyFirebaseProducts(event.data.products);
+    return;
+  }
+  if (event.data?.type === 'farallones:session' && event.data.profile?.view) {
+    S.profile = event.data.profile;
+    S.view = event.data.profile.view;
+    render();
+  }
 });
 render();
 })();
