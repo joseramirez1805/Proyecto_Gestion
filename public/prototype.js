@@ -144,8 +144,10 @@ function checksFor(name, note) {
   return c;
 }
 
+let firebaseProducts = null;
 function applyFirebaseProducts(products) {
   if (!Array.isArray(products) || !products.length) return;
+  firebaseProducts = products;
   const menu = products.map(product => ({ ...product }));
   S.A.menu = menu.map(product => ({ ...product, min: product.min || 20 }));
   S.C.menu = menu;
@@ -204,16 +206,16 @@ function viewA() {
   ${guide('Propuesta A', 'Sincronía A&B: cocina y salón ven la misma información',
     'Cocina marca el estado de cada pedido y la disponibilidad de cada plato. El encargado de A&B y los meseros lo ven al instante. Responde a C3 (la información viaja en una sola dirección) y C4 (el momento de verdad es la llegada del plato).',
     ['En <b>Cocina</b>, marca el <b>Sancocho de gallina</b> como agotado.', 'Mira cómo le llega el aviso a Andrés en el celular y toca <b>Entendido</b>.', 'Desde el celular crea un pedido nuevo y muévelo en Cocina hasta <b>Entregado</b>.', 'Usa <b>+5 min</b> para ver cómo aparecen los retrasos en el panel.'])}
-  <div class="stage">
-    <div style="min-width:0">
+  <div class="${stageCls()}">
+    ${part('desk') ? `<div style="min-width:0">
       <p class="caption">Pantalla de escritorio</p>
       <div class="seg" role="group" aria-label="Pantalla">
         <button data-act="aScreen" data-arg="panel" aria-pressed="${A.screen === 'panel'}">A1 · Panel de control</button>
         <button data-act="aScreen" data-arg="cocina" aria-pressed="${A.screen === 'cocina'}">A2 · Cocina y disponibilidad</button>
       </div>
       ${A.screen === 'panel' ? aPanel() : aKitchen()}
-    </div>
-    <div class="phone-wrap"><p class="caption">A3 · App del mesero</p>${aWaiter()}</div>
+    </div>` : ''}
+    ${part('phone') ? `<div class="phone-wrap"><p class="caption">A3 · App del mesero</p>${aWaiter()}</div>` : ''}
   </div>`;
 }
 
@@ -377,16 +379,16 @@ function viewB() {
   ${guide('Propuesta B', 'Domingo previsto: anticipar la demanda antes de que llegue',
     'El socio avisa si viene y con cuántos invitados, sin que sea una reserva obligatoria. La cocina planea con esos datos y la recepción asigna mesa al llegar. Responde a C2 (la demanda que nadie anuncia) y al primer momento de verdad: buscar mesa.',
     ['En la <b>app del socio</b>, elige personas, hora y zona, y confirma.', 'Mira cómo cambian el pronóstico y las porciones sugeridas en <b>Planeación</b>.', 'Envía la sugerencia de horario a la franja de 1:00 p. m., que está llena.', 'En <b>Recepción</b>, asigna mesa a quien llega o libera una mesa tocándola.'])}
-  <div class="stage">
-    <div style="min-width:0">
+  <div class="${stageCls()}">
+    ${part('desk') ? `<div style="min-width:0">
       <p class="caption">Pantallas del Club</p>
       <div class="seg" role="group" aria-label="Pantalla">
         <button data-act="bScreen" data-arg="plan" aria-pressed="${B.screen === 'plan'}">B2 · Planeación de cocina</button>
         <button data-act="bScreen" data-arg="recep" aria-pressed="${B.screen === 'recep'}">B3 · Recepción de mesas (tableta)</button>
       </div>
       ${B.screen === 'plan' ? bPlan() : bRecep()}
-    </div>
-    <div class="phone-wrap"><p class="caption">B1 · App del socio</p>${bSocio()}</div>
+    </div>` : ''}
+    ${part('phone') ? `<div class="phone-wrap"><p class="caption">B1 · App del socio</p>${bSocio()}</div>` : ''}
   </div>`;
 }
 
@@ -527,9 +529,9 @@ function viewC() {
   ${guide('Propuesta C', 'Mesa al día: del pedido en la mesa al plato bien servido',
     'El socio pide desde la mesa viendo la disponibilidad real, sigue su pedido y recibe aviso si se retrasa. En el pase, cada plato se revisa contra el estándar antes de salir. Responde a C4 (la decepción al final de la espera) y a los errores de comanda.',
     ['En la <b>carta</b>, abre el churrasco, elige término y acompañamiento, y agrégalo con un ajiaco.', 'Envía el pedido: en unos segundos llega al <b>pase</b>.', 'Revisa la lista de chequeo. Si un plato está frío, caliéntalo antes de despachar.', 'Despacha y mira el seguimiento en el celular. Con <b>+5 min</b> puedes simular una demora.'])}
-  <div class="stage">
-    <div style="min-width:0"><p class="caption">C3 · Estación de pase</p>${cPase()}</div>
-    <div class="phone-wrap"><p class="caption">${C.phone === 'carta' ? 'C1 · App del socio · Carta en la mesa' : 'C2 · App del socio · Seguimiento del pedido'}</p>${cPhone()}</div>
+  <div class="${stageCls()}">
+    ${part('desk') ? `<div style="min-width:0"><p class="caption">C3 · Estación de pase</p>${cPase()}</div>` : ''}
+    ${part('phone') ? `<div class="phone-wrap"><p class="caption">${C.phone === 'carta' ? 'C1 · App del socio · Carta en la mesa' : 'C2 · App del socio · Seguimiento del pedido'}</p>${cPhone()}</div>` : ''}
   </div>`;
 }
 
@@ -637,7 +639,12 @@ function cPhone() {
 }
 
 /* ---------- piezas comunes ---------- */
+/* Con perfil activo solo se muestran sus pantallas (desk / phone) y sin la guía de la demo. */
+const part = p => !S.profile?.parts || S.profile.parts.includes(p);
+const stageCls = () => (S.profile?.parts?.length === 1 ? 'stage solo' : 'stage');
+
 function guide(tag, title, what, steps) {
+  if (S.profile?.parts) return '';
   return `<section class="guide"><div><span class="tag">${tag}</span><h1>${title}</h1><p>${what}</p></div><div><h2>Pruébalo</h2><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol></div></section>`;
 }
 function appHead(t, who, chip) {
@@ -648,7 +655,7 @@ function appHead(t, who, chip) {
 const H = {
   view: v => { S.view = v; try { history.replaceState(null, '', '#' + v); } catch { location.hash = v; } window.scrollTo({ top: 0 }); },
   tick: n => { S.clock += Number(n); toast(`Reloj de la demo: ${hmp(S.clock)}`); },
-  reset: () => { timers.forEach(id => { clearTimeout(id); clearInterval(id); }); timers.clear(); const v = S.view; S = initial(); S.view = v; toast('La demo volvió al inicio'); },
+  reset: () => { timers.forEach(id => { clearTimeout(id); clearInterval(id); }); timers.clear(); const v = S.view, p = S.profile; S = initial(); S.view = v; S.profile = p; if (firebaseProducts) applyFirebaseProducts(firebaseProducts); toast('La demo volvió al inicio'); },
 
   aScreen: s => { S.A.screen = s; },
   aMove: arg => { const [id, st] = arg.split(':'); const o = S.A.orders.find(x => x.id === Number(id)); if (!o) return;

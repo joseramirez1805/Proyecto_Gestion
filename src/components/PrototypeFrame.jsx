@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchProducts } from '../services/firebase'
+import { publicProfile } from '../services/profiles'
 import { prototypeUrl, publishProducts } from '../services/prototypeService'
 
 function PrototypeFrame({ profile }) {
@@ -14,7 +15,7 @@ function PrototypeFrame({ profile }) {
         if (!active) return
         publishProducts(frameRef.current, products)
         frameRef.current?.contentWindow?.postMessage(
-          { type: 'farallones:session', profile },
+          { type: 'farallones:session', profile: publicProfile(profile) },
           window.location.origin,
         )
         setStatus('ready')
@@ -31,7 +32,7 @@ function PrototypeFrame({ profile }) {
 
   function handleLoad() {
     frameRef.current?.contentWindow?.postMessage(
-      { type: 'farallones:session', profile },
+      { type: 'farallones:session', profile: publicProfile(profile) },
       window.location.origin,
     )
     fetchProducts()

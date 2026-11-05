@@ -1,38 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import PrototypeFrame from './components/PrototypeFrame'
-
-const profiles = {
-  director: {
-    label: 'Director de A&B',
-    email: 'director@farallones.co',
-    password: '123456',
-    view: 'a',
-  },
-  planeacion: {
-    label: 'Planeación y reservas',
-    email: 'planeacion@farallones.co',
-    password: '123456',
-    view: 'b',
-  },
-  mesero: {
-    label: 'Mesero',
-    email: 'mesero@farallones.co',
-    password: '123456',
-    view: 'a',
-  },
-  socio: {
-    label: 'Socio',
-    email: 'socio@farallones.co',
-    password: '123456',
-    view: 'b',
-  },
-  pase: {
-    label: 'Jefe de pase',
-    email: 'pase@farallones.co',
-    password: '123456',
-    view: 'c',
-  },
-}
+import { LOGIN_PATH, findProfile, profiles, readSession, saveSession } from './services/profiles'
 
 function Login({ onLogin }) {
   const [email, setEmail] = useState('')
@@ -41,17 +9,15 @@ function Login({ onLogin }) {
 
   function handleSubmit(event) {
     event.preventDefault()
-    const profile = Object.values(profiles).find(
-      (candidate) => candidate.email === email.trim().toLowerCase() && candidate.password === password,
-    )
+    const profileKey = findProfile(email, password)
 
-    if (!profile) {
+    if (!profileKey) {
       setError('Correo o contraseña incorrectos. Usa una cuenta demo para continuar.')
       return
     }
 
     setError('')
-    onLogin(profile)
+    onLogin(profileKey)
   }
 
   return (
@@ -109,17 +75,42 @@ function Login({ onLogin }) {
 }
 
 function App() {
-  const [profile, setProfile] = useState(null)
+  const [profileKey, setProfileKey] = useState(readSession)
+  const profile = profileKey ? profiles[profileKey] : null
 
-  if (!profile) return <Login onLogin={setProfile} />
+  // Cada perfil vive en su propia ruta: sin sesión se va a /login y con sesión
+  // a la página del perfil, aunque se escriba otra URL o se use "Atrás".
+  useEffect(() => {
+    const target = profile ? profile.path : LOGIN_PATH
+    const sync = () => {
+      if (window.location.pathname !== target) window.history.replaceState(null, '', target)
+    }
+    sync()
+    document.title = profile ? `${profile.label} · Farallones` : 'Ingresar · Farallones'
+    window.addEventListener('popstate', sync)
+    return () => window.removeEventListener('popstate', sync)
+  }, [profile])
+
+  function handleLogin(key) {
+    saveSession(key)
+    window.history.pushState(null, '', profiles[key].path)
+    setProfileKey(key)
+  }
+
+  function handleLogout() {
+    saveSession(null)
+    setProfileKey(null)
+  }
+
+  if (!profile) return <Login onLogin={handleLogin} />
 
   return (
     <main className="authenticated-shell">
       <div className="session-bar">
         <span>Sesión activa: <strong>{profile.label}</strong></span>
-        <button type="button" onClick={() => setProfile(null)}>Cerrar sesión</button>
+        <button type="button" onClick={handleLogout}>Cerrar sesión</button>
       </div>
-      <PrototypeFrame profile={profile} />
+      <PrototypeFrame key={profileKey} profile={profile} />
     </main>
   )
 }
