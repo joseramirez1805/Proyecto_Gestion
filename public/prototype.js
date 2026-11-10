@@ -7,6 +7,10 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 const T = (h, m) => h * 60 + m;
 const hm = m => { const h = Math.floor(m / 60) % 24, mm = m % 60; return (((h + 11) % 12) + 1) + ':' + String(mm).padStart(2, '0'); };
 const hmp = m => hm(m) + (Math.floor(m / 60) % 24 < 12 ? ' a. m.' : ' p. m.');
+const currentTime = () => new Intl.DateTimeFormat('es-CO', {
+  hour: 'numeric',
+  minute: '2-digit',
+}).format(new Date());
 const money = n => '$ ' + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 const sum = (a, f) => a.reduce((t, x) => t + f(x), 0);
 
@@ -37,100 +41,47 @@ const ICONS = {
 const ic = (n, size = 18, color = 'currentColor', sw = 2, fill = 'none') =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
 
-/* ---------- estado inicial ---------- */
-function initial() {
+/* ---------- reloj real ---------- */
+// Los tiempos se guardan en "minutos locales desde 1970": hm() sigue mostrando la hora del día
+// y una resta da los minutos transcurridos, aunque el pedido sea de otro día.
+let S;
+const nowMin = () => Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 60000) + (S ? S.clockOffset : 0);
+const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const todayLabel = () => { const d = new Date(); return `${DAYS[d.getDay()]} ${d.getDate()}`; };
+const sundayLabel = () => { const d = new Date(); d.setDate(d.getDate() + ((7 - d.getDay()) % 7)); return `domingo ${d.getDate()} de ${MONTHS[d.getMonth()]}`; };
+
+/* ---------- configuración fija del Club ---------- */
+const ZONES = [
+  { id: 'aire', name: 'Comedor con aire', icon: 'snow', cols: 4, tables: [['A1', 4], ['A2', 4], ['A3', 4], ['A4', 6], ['A5', 4], ['A6', 4], ['A7', 6], ['A8', 2], ['A9', 4], ['A10', 4], ['A11', 2], ['A12', 4], ['A13', 6], ['A14', 4], ['A15', 4], ['A16', 4]] },
+  { id: 'terraza', name: 'Terraza', icon: 'sun', cols: 4, tables: [['T1', 4], ['T2', 4], ['T3', 4], ['T4', 6], ['T5', 4], ['T6', 4], ['T7', 4], ['T8', 4], ['T9', 8], ['T10', 6], ['T11', 4], ['T12', 4]] },
+  { id: 'palmas', name: 'Comedor Palmas', icon: 'fork', cols: 3, tables: [['P1', 6], ['P2', 4], ['P3', 4], ['P4', 4], ['P5', 4], ['P6', 4], ['P7', 4], ['P8', 4], ['P9', 2]] }
+];
+const DISHES_PLAN = [
+  { name: 'Bandeja paisa', base: 140, extra: 25, note: 'incluye el cumpleaños (25)' },
+  { name: 'Frijolada', base: 60, stock: 'Faltan 4 kg de fríjol', warn: true },
+  { name: 'Sancocho de gallina', base: 90 },
+  { name: 'Churrasco 300 g', base: 120 },
+  { name: 'Ajiaco santafereño', base: 70 },
+  { name: 'Limonada de coco', base: 420, clima: 1.15, note: 'día soleado', stock: 'Pedir 40 cocos', warn: true }
+];
+const SEED_HOURS = [
+  { h: 11, s: 70, i: 25, e: 25 }, { h: 12, s: 150, i: 60, e: 40 }, { h: 13, s: 190, i: 110, e: 40 },
+  { h: 14, s: 120, i: 60, e: 40 }, { h: 15, s: 60, i: 25, e: 25 }, { h: 16, s: 22, i: 6, e: 12 }
+];
+
+/* ---------- estado de la interfaz (propio de cada pestaña) ---------- */
+function uiInitial() {
   return {
-    clock: T(13, 10),
-    view: 'a',
-    profile: null,
-    A: {
-      screen: 'panel', confirming: null, nextId: 244, staff: 14, waiterTab: 'mesas',
-      draft: { mesa: 12, items: {} },
-      menu: [
-        { id: 'bandeja', name: 'Bandeja paisa', cat: 'Fuertes', st: 'ok', min: 25 },
-        { id: 'frijolada', name: 'Frijolada', cat: 'Fuertes', st: 'off', min: 25, since: T(12, 31) },
-        { id: 'churrasco', name: 'Churrasco 300 g', cat: 'Fuertes', st: 'ok', min: 30 },
-        { id: 'lomo', name: 'Lomo al trapiche', cat: 'Fuertes', st: 'ok', min: 30 },
-        { id: 'salmon', name: 'Salmón en salsa de maracuyá', cat: 'Fuertes', st: 'few', left: 5, min: 25 },
-        { id: 'pechuga', name: 'Pechuga a la plancha', cat: 'Fuertes', st: 'ok', min: 20 },
-        { id: 'arroz', name: 'Arroz con pollo', cat: 'Fuertes', st: 'ok', min: 20 },
-        { id: 'hamburguesa', name: 'Hamburguesa del club', cat: 'Fuertes', st: 'ok', min: 15 },
-        { id: 'ajiaco', name: 'Ajiaco santafereño', cat: 'Sopas', st: 'ok', min: 12 },
-        { id: 'sancocho', name: 'Sancocho de gallina', cat: 'Sopas', st: 'few', left: 8, min: 20 },
-        { id: 'limonada', name: 'Limonada de coco', cat: 'Bebidas', st: 'ok', min: 6 },
-        { id: 'lulo', name: 'Jugo de lulo', cat: 'Bebidas', st: 'ok', min: 5 }
-      ],
-      orders: [
-        { id: 218, punto: 'Terraza', mesa: 12, mesero: 'Andrés', t: T(12, 28), st: 'prep', items: [[2, 'Churrasco 300 g', 'término medio, papa criolla'], [1, 'Arroz con pollo', '']] },
-        { id: 205, punto: 'Restaurante', mesa: 7, mesero: 'Camila', t: T(12, 31), st: 'prep', items: [[1, 'Cazuela de mariscos', ''], [2, 'Bandeja paisa', '']] },
-        { id: 231, punto: 'Palmas', mesa: 3, mesero: 'Julián', t: T(12, 35), st: 'prep', items: [[3, 'Lomo al trapiche', '']] },
-        { id: 226, punto: 'Restaurante', mesa: 15, mesero: 'Camila', t: T(12, 42), st: 'prep', items: [[2, 'Sancocho de gallina', ''], [2, 'Arroz con pollo', '']] },
-        { id: 233, punto: 'Palmas', mesa: 6, mesero: 'Julián', t: T(12, 52), st: 'prep', items: [[2, 'Salmón en salsa de maracuyá', ''], [1, 'Pechuga a la plancha', 'sin sal']] },
-        { id: 238, punto: 'Terraza', mesa: 9, mesero: 'Andrés', t: T(12, 52), st: 'prep', items: [[2, 'Bandeja paisa', ''], [2, 'Limonada de coco', '']] },
-        { id: 237, punto: 'Restaurante', mesa: 2, mesero: 'Camila', t: T(12, 59), st: 'prep', items: [[4, 'Sancocho de gallina', '']] },
-        { id: 239, punto: 'Terraza', mesa: 14, mesero: 'Andrés', t: T(12, 50), st: 'listo', items: [[1, 'Ajiaco santafereño', ''], [1, 'Churrasco 300 g', 'tres cuartos']] },
-        { id: 229, punto: 'Restaurante', mesa: 11, mesero: 'Camila', t: T(12, 51), st: 'listo', items: [[2, 'Pechuga a la plancha', ''], [2, 'Jugo de lulo', '']] },
-        { id: 230, punto: 'Kiosko', mesa: 1, mesero: 'Sofía', t: T(12, 55), st: 'listo', items: [[2, 'Hamburguesa del club', ''], [2, 'Jugo de lulo', '']] },
-        { id: 241, punto: 'Restaurante', mesa: 9, mesero: 'Camila', t: T(13, 8), st: 'pend', items: [[2, 'Ajiaco santafereño', ''], [1, 'Churrasco 300 g', 'término 3/4']] },
-        { id: 242, punto: 'Terraza', mesa: 10, mesero: 'Andrés', t: T(13, 7), st: 'pend', items: [[3, 'Bandeja paisa', ''], [1, 'Bandeja paisa', 'sin chicharrón']] },
-        { id: 243, punto: 'Kiosko', mesa: 3, mesero: 'Sofía', t: T(13, 9), st: 'pend', items: [[2, 'Hamburguesa del club', '']] }
-      ],
-      notices: [{ id: 1, dish: 'frijolada', t: T(12, 31), conf: 14, mine: true }]
-    },
+    clock: 0, clockOffset: 0, view: 'a', profile: null,
+    A: { screen: 'panel', confirming: null, waiterTab: 'mesas', draft: { mesa: 12, items: {} }, staff: 14, menu: [], orders: [], notices: [], calls: [] },
     B: {
-      screen: 'plan', cap: 300, hist: 890, suggested: null, sentWarehouse: false,
-      hours: [
-        { h: 11, s: 70, i: 25, e: 25 }, { h: 12, s: 150, i: 60, e: 40 }, { h: 13, s: 190, i: 110, e: 40 },
-        { h: 14, s: 120, i: 60, e: 40 }, { h: 15, s: 60, i: 25, e: 25 }, { h: 16, s: 22, i: 6, e: 12 }
-      ],
-      form: { fam: 4, inv: 3, slot: '12:30', zona: 'aire', cel: false }, confirmed: null,
-      dishes: [
-        { name: 'Bandeja paisa', base: 140, extra: 25, note: 'incluye el cumpleaños (25)' },
-        { name: 'Frijolada', base: 60, stock: 'Faltan 4 kg de fríjol', warn: true },
-        { name: 'Sancocho de gallina', base: 90 },
-        { name: 'Churrasco 300 g', base: 120 },
-        { name: 'Ajiaco santafereño', base: 70 },
-        { name: 'Limonada de coco', base: 420, clima: 1.15, note: 'día soleado', stock: 'Pedir 40 cocos', warn: true }
-      ],
-      zones: [
-        { id: 'aire', name: 'Comedor con aire', icon: 'snow', cols: 4, tables: [
-          ['A1', 4, 'ocu'], ['A2', 4, 'ocu'], ['A3', 4, 'libre'], ['A4', 6, 'ocu'], ['A5', 4, 'ocu'], ['A6', 4, 'ocu'], ['A7', 6, 'apa'], ['A8', 2, 'ocu'],
-          ['A9', 4, 'ocu'], ['A10', 4, 'ocu'], ['A11', 2, 'libre'], ['A12', 4, 'pronto'], ['A13', 6, 'ocu'], ['A14', 4, 'pronto'], ['A15', 4, 'ocu'], ['A16', 4, 'ocu']] },
-        { id: 'terraza', name: 'Terraza', icon: 'sun', cols: 4, tables: [
-          ['T1', 4, 'pronto'], ['T2', 4, 'ocu'], ['T3', 4, 'apa'], ['T4', 6, 'ocu'], ['T5', 4, 'libre'], ['T6', 4, 'pronto'],
-          ['T7', 4, 'ocu'], ['T8', 4, 'pronto'], ['T9', 8, 'ocu'], ['T10', 6, 'libre'], ['T11', 4, 'pronto'], ['T12', 4, 'ocu']] },
-        { id: 'palmas', name: 'Comedor Palmas', icon: 'fork', cols: 3, tables: [
-          ['P1', 6, 'ocu'], ['P2', 4, 'pronto'], ['P3', 4, 'ocu'], ['P4', 4, 'ocu'], ['P5', 4, 'pronto'], ['P6', 4, 'pronto'],
-          ['P7', 4, 'ocu'], ['P8', 4, 'libre'], ['P9', 2, 'libre']] }
-      ].map(z => ({ ...z, tables: z.tables.map(([id, cap, st]) => ({ id, cap, st, who: id === 'A7' ? 'Restrepo' : id === 'T3' ? 'Cárdenas' : null })) })),
-      arrivals: [
-        { id: 'r1', name: 'Familia Restrepo', fam: 4, inv: 2, time: '1:00', zona: 'aire' },
-        { id: 'r2', name: 'Familia Cárdenas', fam: 3, inv: 0, time: '1:15', zona: 'terraza' }
-      ],
-      wait: [
-        { id: 'w1', name: 'Familia Gómez', n: 5, zona: 'cualquier zona', notified: null },
-        { id: 'w2', name: 'Familia Ortiz', n: 2, zona: 'Palmas', notified: null }
-      ]
+      screen: 'plan', cap: 300, hist: 890, form: { fam: 4, inv: 3, slot: '12:30', zona: 'aire', cel: false },
+      dishes: DISHES_PLAN, hours: SEED_HOURS, zones: [], arrivals: [], wait: [], confirmed: null, suggested: null, sentWarehouse: false
     },
     C: {
       phone: 'carta', cat: 'Fuertes', cart: [], open: null, opts: { termino: 'Tres cuartos', acomp: 'Papa criolla', nota: '' },
-      nextId: 250, my: null, sel: 229, rating: 0, courtesy: false,
-      stats: { rev: 214, corr: 6, dev: 3 },
-      menu: [
-        { id: 'churrasco', name: 'Churrasco 300 g', cat: 'Fuertes', price: 62000, min: 30, st: 'ok', icon: 'fork', options: true, hot: 68 },
-        { id: 'bandeja', name: 'Bandeja paisa', cat: 'Fuertes', price: 46000, min: 25, st: 'ok', icon: 'fork', hot: 66 },
-        { id: 'frijolada', name: 'Frijolada', cat: 'Fuertes', price: 36000, min: 25, st: 'off', icon: 'fork', hot: 66 },
-        { id: 'pechuga', name: 'Pechuga a la plancha', cat: 'Fuertes', price: 41000, min: 20, st: 'ok', icon: 'fork', hot: 67 },
-        { id: 'ajiaco', name: 'Ajiaco santafereño', cat: 'Sopas', price: 38000, min: 12, st: 'ok', fast: true, icon: 'bowl', hot: 58 },
-        { id: 'sancocho', name: 'Sancocho de gallina', cat: 'Sopas', price: 34000, min: 20, st: 'few', icon: 'bowl', hot: 72 },
-        { id: 'limonada', name: 'Limonada de coco', cat: 'Bebidas', price: 9000, min: 6, st: 'ok', fast: true, icon: 'glass' },
-        { id: 'lulo', name: 'Jugo de lulo', cat: 'Bebidas', price: 8000, min: 5, st: 'ok', fast: true, icon: 'glass' }
-      ],
-      orders: [
-        mkPase(229, 'Restaurante 11', 'Camila', T(12, 51), [['Pechuga a la plancha', 2, '', 67], ['Jugo de lulo', 2, '', null]], true),
-        mkPase(236, 'Palmas 5', 'Julián', T(12, 56), [['Bandeja paisa', 2, 'una sin chicharrón', 66], ['Sancocho de gallina', 1, '', 72]], false),
-        mkPase(240, 'Kiosko 2', 'Sofía', T(13, 1), [['Limonada de coco', 2, '', null]], false)
-      ]
+      sel: null, my: null, rating: 0, courtesy: false, stats: { rev: 0, corr: 0, dev: 0 }, menu: [], orders: []
     }
   };
 }
@@ -143,20 +94,9 @@ function checksFor(name, note) {
   if (note) c.push({ l: 'Observación: ' + note, d: false });
   return c;
 }
-
-let firebaseProducts = null;
-function applyFirebaseProducts(products) {
-  if (!Array.isArray(products) || !products.length) return;
-  firebaseProducts = products;
-  const menu = products.map(product => ({ ...product }));
-  S.A.menu = menu.map(product => ({ ...product, min: product.min || 20 }));
-  S.C.menu = menu;
-  render();
-}
-
 function mkPase(id, mesa, mesero, t, items, preDone) {
   return {
-    id, mesa, mesero, t, st: 'pase', notified: false,
+    id, mesa, mesero, t, st: 'pase', notified: false, createdAt: id,
     items: items.map(([name, qty, note, temp]) => {
       const checks = checksFor(name, note);
       if (preDone) checks.forEach(x => (x.d = true));
@@ -165,10 +105,214 @@ function mkPase(id, mesa, mesero, t, items, preDone) {
   };
 }
 
-let S = initial();
-const timers = new Set();
-const later = (fn, ms) => { const id = setTimeout(() => { timers.delete(id); fn(); }, ms); timers.add(id); };
-const every = (fn, ms) => { const id = setInterval(() => { if (fn() === false) { clearInterval(id); timers.delete(id); } }, ms); timers.add(id); };
+/* ---------- datos iniciales que se siembran en Firebase ---------- */
+// Las horas se recalculan respecto a "ahora" para que la demo arranque con el mismo escenario
+// (13:10 de un domingo lleno) sin importar a qué hora se siembre.
+const REF = T(13, 10);
+function seedState() {
+  const now = nowMin(), at = (h, m) => now + T(h, m) - REF;
+  const menu = [
+    ['bandeja', 'Bandeja paisa', 'Fuertes', 46000, 25, 'ok', { hot: 66 }],
+    ['frijolada', 'Frijolada', 'Fuertes', 36000, 25, 'off', { hot: 66, since: at(12, 31) }],
+    ['churrasco', 'Churrasco 300 g', 'Fuertes', 62000, 30, 'ok', { hot: 68, options: true }],
+    ['lomo', 'Lomo al trapiche', 'Fuertes', 58000, 30, 'ok', { hot: 67 }],
+    ['salmon', 'Salmón en salsa de maracuyá', 'Fuertes', 64000, 25, 'few', { hot: 66, left: 5 }],
+    ['pechuga', 'Pechuga a la plancha', 'Fuertes', 41000, 20, 'ok', { hot: 67 }],
+    ['arroz', 'Arroz con pollo', 'Fuertes', 32000, 20, 'ok', { hot: 66 }],
+    ['hamburguesa', 'Hamburguesa del club', 'Fuertes', 35000, 15, 'ok', { hot: 65 }],
+    ['ajiaco', 'Ajiaco santafereño', 'Sopas', 38000, 12, 'ok', { hot: 58, fast: true, icon: 'bowl' }],
+    ['sancocho', 'Sancocho de gallina', 'Sopas', 34000, 20, 'few', { hot: 72, left: 8, icon: 'bowl' }],
+    ['limonada', 'Limonada de coco', 'Bebidas', 9000, 6, 'ok', { fast: true, icon: 'glass' }],
+    ['lulo', 'Jugo de lulo', 'Bebidas', 8000, 5, 'ok', { fast: true, icon: 'glass' }]
+  ];
+  const products = {};
+  menu.forEach(([id, name, cat, price, min, st, extra], order) => {
+    products[id] = { name, cat, price, min, st, icon: 'fork', order, ...extra };
+  });
+  const orders = {};
+  [
+    [218, 'Terraza', 12, 'Andrés', at(12, 28), 'prep', [[2, 'Churrasco 300 g', 'término medio, papa criolla'], [1, 'Arroz con pollo', '']]],
+    [205, 'Restaurante', 7, 'Camila', at(12, 31), 'prep', [[1, 'Cazuela de mariscos', ''], [2, 'Bandeja paisa', '']]],
+    [231, 'Palmas', 3, 'Julián', at(12, 35), 'prep', [[3, 'Lomo al trapiche', '']]],
+    [226, 'Restaurante', 15, 'Camila', at(12, 42), 'prep', [[2, 'Sancocho de gallina', ''], [2, 'Arroz con pollo', '']]],
+    [233, 'Palmas', 6, 'Julián', at(12, 52), 'prep', [[2, 'Salmón en salsa de maracuyá', ''], [1, 'Pechuga a la plancha', 'sin sal']]],
+    [238, 'Terraza', 9, 'Andrés', at(12, 52), 'prep', [[2, 'Bandeja paisa', ''], [2, 'Limonada de coco', '']]],
+    [237, 'Restaurante', 2, 'Camila', at(12, 59), 'prep', [[4, 'Sancocho de gallina', '']]],
+    [239, 'Terraza', 14, 'Andrés', at(12, 50), 'listo', [[1, 'Ajiaco santafereño', ''], [1, 'Churrasco 300 g', 'tres cuartos']]],
+    [229, 'Restaurante', 11, 'Camila', at(12, 51), 'listo', [[2, 'Pechuga a la plancha', ''], [2, 'Jugo de lulo', '']]],
+    [230, 'Kiosko', 1, 'Sofía', at(12, 55), 'listo', [[2, 'Hamburguesa del club', ''], [2, 'Jugo de lulo', '']]],
+    [241, 'Restaurante', 9, 'Camila', at(13, 8), 'pend', [[2, 'Ajiaco santafereño', ''], [1, 'Churrasco 300 g', 'término 3/4']]],
+    [242, 'Terraza', 10, 'Andrés', at(13, 7), 'pend', [[3, 'Bandeja paisa', ''], [1, 'Bandeja paisa', 'sin chicharrón']]],
+    [243, 'Kiosko', 3, 'Sofía', at(13, 9), 'pend', [[2, 'Hamburguesa del club', '']]]
+  ].forEach(([id, punto, mesa, mesero, t, st, items]) => { orders['o' + id] = { id, punto, mesa, mesero, t, st, items }; });
+  const tables = {};
+  const seedTables = {
+    aire: ['ocu', 'ocu', 'libre', 'ocu', 'ocu', 'ocu', 'apa', 'ocu', 'ocu', 'ocu', 'libre', 'pronto', 'ocu', 'pronto', 'ocu', 'ocu'],
+    terraza: ['pronto', 'ocu', 'apa', 'ocu', 'libre', 'pronto', 'ocu', 'pronto', 'ocu', 'libre', 'pronto', 'ocu'],
+    palmas: ['ocu', 'pronto', 'ocu', 'ocu', 'pronto', 'pronto', 'ocu', 'libre', 'libre']
+  };
+  ZONES.forEach(z => z.tables.forEach(([id], k) => {
+    tables[id] = { st: seedTables[z.id][k] };
+    if (id === 'A7') tables[id].who = 'Restrepo';
+    if (id === 'T3') tables[id].who = 'Cárdenas';
+  }));
+  const pase = {};
+  [
+    mkPase(229, 'Restaurante 11', 'Camila', at(12, 51), [['Pechuga a la plancha', 2, '', 67], ['Jugo de lulo', 2, '', null]], true),
+    mkPase(236, 'Palmas 5', 'Julián', at(12, 56), [['Bandeja paisa', 2, 'una sin chicharrón', 66], ['Sancocho de gallina', 1, '', 72]], false),
+    mkPase(240, 'Kiosko 2', 'Sofía', at(13, 1), [['Limonada de coco', 2, '', null]], false)
+  ].forEach(o => { pase['p' + o.id] = o; });
+  return {
+    meta: { seededAt: Date.now(), staff: 14 },
+    products, orders, tables, pase,
+    notices: { n1: { dish: 'frijolada', t: at(12, 31), createdAt: 1, conf: 14, acked: true } },
+    calls: null,
+    plan: { hours: SEED_HOURS, sentWarehouse: false },
+    arrivals: {
+      r1: { name: 'Familia Restrepo', fam: 4, inv: 2, time: '1:00', zona: 'aire', createdAt: 1 },
+      r2: { name: 'Familia Cárdenas', fam: 3, inv: 0, time: '1:15', zona: 'terraza', createdAt: 2 }
+    },
+    waitlist: {
+      w1: { name: 'Familia Gómez', n: 5, zona: 'cualquier zona', order: 1 },
+      w2: { name: 'Familia Ortiz', n: 2, zona: 'Palmas', order: 2 }
+    },
+    stats: { rev: 214, corr: 6, dev: 3 }
+  };
+}
+// Sembrar no pisa un menú que ya exista en Firebase; reiniciar solo devuelve su disponibilidad.
+function seedOps(reset) {
+  const seed = seedState(), ops = [];
+  const hasProducts = Object.keys(DB.products || {}).length > 0;
+  Object.entries(seed).forEach(([p, v]) => { if (p !== 'products' || !hasProducts) ops.push({ p, v }); });
+  if (hasProducts && reset) {
+    Object.keys(DB.products).forEach(id => {
+      const s = seed.products[id];
+      ops.push({ p: `products/${id}/st`, v: s ? s.st : 'ok' }, { p: `products/${id}/left`, v: s?.left ?? null }, { p: `products/${id}/since`, v: s?.since ?? null });
+    });
+  }
+  return ops;
+}
+
+/* ---------- base de datos compartida ---------- */
+// DB es una copia del árbol de Realtime Database. Cada acción produce operaciones
+// { p: ruta, v: valor } o { p, inc: n }; se aplican aquí al instante y la página
+// principal las guarda en Firebase, que luego devuelve el árbol actualizado a todos.
+let DB = {};
+let MODE = 'pending'; // pending | firebase | local
+const clone = v => JSON.parse(JSON.stringify(v));
+function applyOp({ p, v, inc }) {
+  const keys = p.split('/'), last = keys.pop();
+  let o = DB;
+  for (const k of keys) { if (o[k] == null || typeof o[k] !== 'object') o[k] = {}; o = o[k]; }
+  if (inc != null) o[last] = (Number(o[last]) || 0) + inc;
+  else if (v == null) delete o[last];
+  else o[last] = clone(v);
+}
+function commit(ops) {
+  if (!ops.length) return;
+  ops.forEach(applyOp);
+  hydrate();
+  if (MODE === 'firebase') window.parent.postMessage({ type: 'farallones:write', ops }, location.origin);
+}
+const newKey = prefix => prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const nextNum = (list, base) => Math.max(base, ...list.map(o => Number(o.id) || 0)) + 1;
+const vals = o => Object.entries(o || {}).filter(([, v]) => v && typeof v === 'object').map(([k, v]) => ({ ...v, _key: k }));
+const arr = x => (Array.isArray(x) ? x.filter(v => v != null) : x && typeof x === 'object' ? Object.values(x) : []);
+const uid = () => S.profile?.uid || 'local';
+const allowedViews = () => (S.profile ? S.profile.views || [S.profile.view] : ['a', 'b', 'c']);
+const socioKey = () => 'socio-' + uid();
+const waiterName = () => S.profile?.name || 'Andrés';
+
+function normProduct(id, p) {
+  if (!p || typeof p !== 'object') return null;
+  const name = p.name ?? p.nombre;
+  if (!name) return null;
+  const rawSt = p.st ?? p.estado, avail = p.available ?? p.disponible;
+  const st = ['ok', 'few', 'off'].includes(rawSt) ? rawSt : avail === false ? 'off' : 'ok';
+  const cat = String(p.cat ?? p.category ?? p.categoria ?? 'Fuertes');
+  const icon = ICONS[p.icon] ? p.icon : cat === 'Bebidas' ? 'glass' : cat === 'Sopas' ? 'bowl' : 'fork';
+  return {
+    id, name: String(name), cat, icon, st,
+    price: Number(p.price ?? p.precio) || 0,
+    min: Number(p.min ?? p.tiempoPreparacion) || 20,
+    left: p.left ?? null, since: p.since ?? null,
+    hot: p.hot == null ? null : Number(p.hot),
+    fast: Boolean(p.fast ?? p.rapido), options: Boolean(p.options ?? p.opciones),
+    order: Number(p.order ?? 999)
+  };
+}
+// Confirmaciones simuladas del resto de meseros: suben solas desde que se envía el aviso.
+const noticeConf = (n, staff) => n.conf != null ? Number(n.conf)
+  : Math.min(staff, Math.min(staff - 1, Math.floor((Date.now() - (n.createdAt || 0)) / 380)) + (n.acked ? 1 : 0));
+// El pedido del socio pasa solo al pase y, una vez despachado, se marca servido al llegar.
+const paseSt = (o, ms) => o.st === 'prep' && o.toPaseAt && ms >= o.toPaseAt ? 'pase'
+  : o.st === 'camino' && o.servedAt && ms >= o.servedAt ? 'servido' : o.st;
+const leftTxt = d => (d.left != null ? `Quedan ${d.left}` : 'Quedan pocas');
+const sinceTxt = (d, pre = ' desde ') => (d.since != null ? pre + hm(d.since) : '');
+
+let lastSig = '';
+function liveSig() {
+  const ms = Date.now(), staff = Number(DB.meta?.staff) || 14;
+  return nowMin() + '|' + vals(DB.notices).map(n => noticeConf(n, staff)).join(',') + '|' + vals(DB.pase).map(o => paseSt(o, ms)).join(',');
+}
+
+function hydrate() {
+  const A = S.A, B = S.B, C = S.C, ms = Date.now();
+  S.clock = nowMin();
+  lastSig = liveSig();
+  const menu = Object.entries(DB.products || {}).map(([id, p]) => normProduct(id, p)).filter(Boolean)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'es'));
+  A.menu = menu;
+  C.menu = menu.filter(d => d.price > 0);
+  A.staff = Number(DB.meta?.staff) || 14;
+  A.orders = vals(DB.orders).map(o => ({ ...o, items: arr(o.items).map(arr) }));
+  A.notices = vals(DB.notices).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .map(n => ({ ...n, mine: Boolean(n.acked), conf: noticeConf(n, A.staff) }));
+  A.calls = vals(DB.calls).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const hours = arr(DB.plan?.hours);
+  B.hours = hours.length === SEED_HOURS.length ? hours.map(x => ({ h: Number(x.h), s: Number(x.s) || 0, i: Number(x.i) || 0, e: Number(x.e) || 0 })) : SEED_HOURS;
+  B.suggested = DB.plan?.suggested || null;
+  B.sentWarehouse = Boolean(DB.plan?.sentWarehouse);
+  B.zones = ZONES.map(z => ({ ...z, tables: z.tables.map(([id, cap]) => ({ id, cap, st: DB.tables?.[id]?.st || 'libre', who: DB.tables?.[id]?.who || null })) }));
+  const arrivals = vals(DB.arrivals).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map(a => ({ ...a, id: a._key }));
+  B.arrivals = arrivals.filter(a => !a.seated);
+  B.confirmed = arrivals.find(a => a._key === socioKey()) || null;
+  B.wait = vals(DB.waitlist).sort((a, b) => (a.order || 0) - (b.order || 0)).map(w => ({ ...w, id: w._key }));
+  C.stats = { rev: 0, corr: 0, dev: 0, ...(DB.stats || {}) };
+  C.orders = vals(DB.pase).map(o => ({ ...o, st: paseSt(o, ms), items: arr(o.items).map(it => ({ ...it, qty: Number(it.qty) || 1, checks: arr(it.checks) })) }));
+  const mine = C.orders.filter(o => o.owner && o.owner === uid()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+  C.my = mine?._key ?? null;
+  C.rating = Number(mine?.rating) || 0;
+  C.courtesy = Boolean(mine?.courtesy);
+  announce();
+}
+
+/* Avisos de lo que hicieron otras personas desde sus propios dispositivos. */
+let seen = null;
+function announce() {
+  const now = {
+    orders: new Set(S.A.orders.map(o => o._key)),
+    notices: new Set(S.A.notices.map(n => n._key)),
+    calls: new Set(S.A.calls.map(c => c._key)),
+    pase: Object.fromEntries(S.C.orders.map(o => [o._key, o.st]))
+  };
+  if (seen) {
+    if (S.view === 'a' && part('desk')) S.A.orders.forEach(o => { if (!seen.orders.has(o._key) && o.st === 'pend') toast(`Nuevo pedido #${o.id} · ${PUNTO[o.punto] || o.punto}, mesa ${o.mesa}`); });
+    if (S.view === 'a' && part('phone')) {
+      S.A.notices.forEach(n => { const d = dishById(n.dish); if (!seen.notices.has(n._key) && !n.mine && d) toast(`Cocina avisa: se agotó ${d.name}`); });
+      S.A.calls.forEach(c => { if (!seen.calls.has(c._key)) toast(`${c.mesa} te necesita en la mesa`); });
+    }
+    if (S.view === 'c') S.C.orders.forEach(o => {
+      const before = seen.pase[o._key];
+      if (before === 'prep' && o.st === 'pase') { toast(`El pedido #${o.id} llegó al pase para revisión`); if (!S.C.sel) S.C.sel = o._key; }
+      if (before === 'camino' && o.st === 'servido' && o._key === S.C.my) toast(`Pedido #${o.id} servido en la mesa`);
+      if (!before && o.st === 'pase' && part('desk')) toast(`Nuevo pedido #${o.id} en el pase · ${o.mesa}`);
+    });
+  }
+  seen = now;
+}
+
+S = uiInitial();
 
 /* ---------- aviso flotante ---------- */
 let toastTimer;
@@ -190,9 +334,9 @@ const PUNTO = { Restaurante: 'Restaurante principal', Terraza: 'Terraza', Palmas
 
 function aAlerts() {
   const A = S.A, out = [];
-  aActive().filter(isLate).sort((a, b) => a.t - b.t).forEach(o => out.push({ k: 'bad', i: 'clock', t: `Pedido retrasado · #${o.id}`, d: `${PUNTO[o.punto]}, mesa ${o.mesa} · ${elapsed(o)} min desde la comanda` }));
-  A.notices.slice().reverse().forEach(n => { const d = dishById(n.dish); if (d && d.st === 'off') out.push({ k: 'neu', i: 'ban', t: `${d.name} agotada · ${hm(n.t)}`, d: `Retirada del menú · ${n.conf} de ${A.staff} meseros confirmaron el aviso` }); });
-  A.menu.filter(d => d.st === 'few').forEach(d => out.push({ k: 'warn', i: 'warn', t: 'Pocas porciones', d: `${d.name}: quedan ${d.left}` }));
+  aActive().filter(isLate).sort((a, b) => a.t - b.t).forEach(o => out.push({ k: 'bad', i: 'clock', t: `Pedido retrasado · #${o.id}`, d: `${PUNTO[o.punto] || o.punto}, mesa ${o.mesa} · ${elapsed(o)} min desde la comanda` }));
+  A.notices.slice().reverse().forEach(n => { const d = dishById(n.dish); if (d && d.st === 'off') out.push({ k: 'neu', i: 'ban', t: `${d.name} agotada · ${hm(d.since ?? n.t)}`, d: `Retirada del menú · ${n.conf} de ${A.staff} meseros confirmaron el aviso` }); });
+  A.menu.filter(d => d.st === 'few').forEach(d => out.push({ k: 'warn', i: 'warn', t: 'Pocas porciones', d: `${d.name}: ${leftTxt(d).toLowerCase()}` }));
   out.push({ k: 'warn', i: 'users', t: 'Evento no previsto · 1:30 p. m.', d: 'Cumpleaños de 25 personas en Comedor Palmas' });
   const ready = aActive().filter(o => o.st === 'listo').length;
   if (ready) out.push({ k: 'ok', i: 'bell', t: `${ready} pedido${ready > 1 ? 's' : ''} listo${ready > 1 ? 's' : ''} en el pase`, d: 'Los meseros ya recibieron el aviso' });
@@ -228,20 +372,20 @@ function aPanel() {
   const waiting = act.filter(o => o.st !== 'listo');
   const avg = waiting.length ? Math.round(sum(waiting, elapsed) / waiting.length) : 0;
   const prevista = [110, 240, 330, 300, 170, 80], real = { 11: 125, 12: 285, 13: 368, 14: 318, 15: 160, 16: 70 };
-  const nowH = Math.floor(S.clock / 60), px = v => Math.round(v * 0.5);
+  const nowH = Math.floor(S.clock / 60) % 24, px = v => Math.round(v * 0.5);
   const bars = [11, 12, 13, 14, 15, 16].map((h, k) => {
     const r = h <= nowH ? real[h] : null;
     return `<div class="grp"><div class="bcol"><span>${prevista[k]}</span><div class="b-prev" style="height:${px(prevista[k])}px"></div></div><div class="bcol"><span style="color:${r && r > 300 ? 'var(--bad)' : 'var(--green)'};font-weight:700">${r ?? '—'}</span><div class="b-real" style="height:${r ? px(r) : 0}px"></div></div></div>`;
   }).join('');
   const att = act.filter(o => o.st !== 'listo').sort((a, b) => a.t - b.t).slice(0, 4);
-  const rows = ['Restaurante', 'Terraza', 'Palmas', 'Kiosko'].map(p => {
+  const rows = Object.keys(PUNTO).map(p => {
     const os = act.filter(o => o.punto === p), w = os.filter(o => o.st !== 'listo');
     const av = w.length ? Math.round(sum(w, elapsed) / w.length) : 0, lt = os.filter(isLate).length;
     const col = av > A_GOAL ? 'var(--bad)' : av > 25 ? 'var(--warn)' : 'var(--ok)';
     return `<tr><td><b>${PUNTO[p]}</b></td><td>${os.length}</td><td style="color:${col};font-weight:700">${w.length ? av + ' min' : '—'}</td><td style="color:${lt ? 'var(--bad)' : 'inherit'};font-weight:${lt ? 700 : 400}">${lt}</td><td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><i style="width:${OCCUP[p]}%"></i></div><span>${OCCUP[p]} %</span></div></td></tr>`;
   }).join('');
   return `<div class="screen">
-    ${appHead('Sincronía A&B · Panel de control', 'Director de A&B', `Domingo 26 · ${hmp(S.clock)}`)}
+    ${appHead('Sincronía A&B · Panel de control', 'Director de A&B', `${todayLabel()} · ${hmp(S.clock)}`)}
     <div class="sbody">
       <div class="kpis">
         <div class="kpi dark"><span class="l">Pedidos activos</span><span class="v">${act.length}</span><span class="n">En los cuatro puntos</span></div>
@@ -272,7 +416,7 @@ function aPanel() {
         </section>
         <section class="card"><div class="card-head"><h2>Pedidos que necesitan atención</h2><button class="btn sm" data-act="aScreen" data-arg="cocina">Ir a cocina</button></div>
           <div class="stack">${att.map(o => { const e = elapsed(o), pct = Math.min(100, Math.round(e / A_GOAL * 100)), c = e > A_GOAL ? 'var(--bad)' : e > 25 ? 'var(--warn-dot)' : 'var(--green)';
-            return `<div><div style="display:flex;justify-content:space-between;font-size:14px;gap:8px"><span><b>#${o.id}</b> · ${PUNTO[o.punto]}, mesa ${o.mesa} · ${o.mesero}</span><b class="tnum" style="color:${e > A_GOAL ? 'var(--bad)' : 'inherit'}">${e} min</b></div><div class="bar" style="margin-top:6px"><i style="width:${pct}%;background:${c}"></i></div></div>`; }).join('') || '<p class="empty">No hay pedidos en espera.</p>'}
+            return `<div><div style="display:flex;justify-content:space-between;font-size:14px;gap:8px"><span><b>#${o.id}</b> · ${PUNTO[o.punto] || o.punto}, mesa ${o.mesa} · ${o.mesero}</span><b class="tnum" style="color:${e > A_GOAL ? 'var(--bad)' : 'inherit'}">${e} min</b></div><div class="bar" style="margin-top:6px"><i style="width:${pct}%;background:${c}"></i></div></div>`; }).join('') || '<p class="empty">No hay pedidos en espera.</p>'}
             <p class="sub" style="margin:0">La barra se llena al llegar a la meta de ${A_GOAL} minutos.</p></div>
         </section>
       </div>
@@ -283,12 +427,12 @@ function orderCard(o) {
   const late = isLate(o), e = elapsed(o);
   const items = o.items.map(([q, n, note]) => `<li>${q}× ${esc(n)}${note ? ` · <b>${esc(note)}</b>` : ''}</li>`).join('');
   let action = '';
-  if (o.st === 'pend') action = `<button class="btn ${late ? 'bad' : 'primary'} block" data-act="aMove" data-arg="${o.id}:prep">Empezar</button>`;
-  else if (o.st === 'prep') action = `<button class="btn ${late ? 'bad' : 'ok'} block" data-act="aMove" data-arg="${o.id}:listo">Marcar listo</button>`;
-  else if (o.st === 'listo') action = `<span class="sub" style="color:var(--ok);display:flex;gap:6px;align-items:center">${ic('bell', 14)}${o.mesero} fue avisado</span><button class="btn block" data-act="aMove" data-arg="${o.id}:entregado">Entregado</button>`;
+  if (o.st === 'pend') action = `<button class="btn ${late ? 'bad' : 'primary'} block" data-act="aMove" data-arg="${o._key}:prep">Empezar</button>`;
+  else if (o.st === 'prep') action = `<button class="btn ${late ? 'bad' : 'ok'} block" data-act="aMove" data-arg="${o._key}:listo">Marcar listo</button>`;
+  else if (o.st === 'listo') action = `<span class="sub" style="color:var(--ok);display:flex;gap:6px;align-items:center">${ic('bell', 14)}${o.mesero} fue avisado</span><button class="btn block" data-act="aMove" data-arg="${o._key}:entregado">Entregado</button>`;
   return `<article class="ocard ${late ? 'late' : o.st === 'listo' ? 'ready' : ''}">
     <div class="top2"><span class="id">#${o.id}</span><span class="meta" style="${late ? 'color:var(--bad);font-weight:700' : ''}">${hm(o.t)} · ${o.st === 'listo' ? 'listo' : e + ' min'}</span></div>
-    <b style="font-size:14px">${PUNTO[o.punto]} · Mesa ${o.mesa}</b>
+    <b style="font-size:14px">${PUNTO[o.punto] || esc(o.punto)} · Mesa ${o.mesa}</b>
     <ul>${items}</ul>
     ${late ? `<span class="sub" style="color:var(--bad-ink)">+${e - A_GOAL} min sobre la meta · el mesero ya fue avisado</span>` : ''}
     ${action}</article>`;
@@ -305,8 +449,8 @@ function aKitchen() {
   const last = A.notices[A.notices.length - 1], ld = last && dishById(last.dish);
   const notice = last && ld ? `<div class="notice"><span class="l">${ic('send', 16)}Aviso enviado al salón</span><b style="font-size:17px">${esc(ld.name)} agotada · ${hm(last.t)}</b><span style="font-size:13px;color:var(--on-dark-2)">Se retiró del menú en los cuatro puntos y les llegó a los meseros en su celular.</span><div style="display:flex;align-items:center;gap:10px"><div class="pbar"><i style="width:${Math.round(last.conf / A.staff * 100)}%"></i></div><b class="tnum" style="font-size:13px">${last.conf} de ${A.staff} confirmaron</b></div></div>` : '';
   const menu = A.menu.map(d => {
-    if (A.confirming === d.id) return `<div class="confirm"><div><b>${esc(d.name)}</b><div class="st st-warn">${d.st === 'few' ? '▲ Quedan ' + d.left + ' porciones' : '● Disponible'}</div></div><span style="font-size:14px;color:var(--warn-ink)">¿Marcarlo como agotado? Se retira del menú en todos los puntos y se avisa a ${A.staff} meseros.</span><div style="display:flex;gap:8px"><button class="btn sm" data-act="aCancel">Cancelar</button><button class="btn sm primary" style="flex:1" data-act="aOff" data-arg="${d.id}">Sí, marcar agotado y avisar</button></div></div>`;
-    const st = d.st === 'off' ? `<span class="st st-off">⊘ Agotado desde ${hm(d.since)}</span>` : d.st === 'few' ? `<span class="st st-warn">▲ Quedan ${d.left} porciones</span>` : '<span class="st st-ok">● Disponible</span>';
+    if (A.confirming === d.id) return `<div class="confirm"><div><b>${esc(d.name)}</b><div class="st st-warn">${d.st === 'few' ? '▲ ' + leftTxt(d) + ' porciones' : '● Disponible'}</div></div><span style="font-size:14px;color:var(--warn-ink)">¿Marcarlo como agotado? Se retira del menú en todos los puntos y se avisa a ${A.staff} meseros.</span><div style="display:flex;gap:8px"><button class="btn sm" data-act="aCancel">Cancelar</button><button class="btn sm primary" style="flex:1" data-act="aOff" data-arg="${d.id}">Sí, marcar agotado y avisar</button></div></div>`;
+    const st = d.st === 'off' ? `<span class="st st-off">⊘ Agotado${sinceTxt(d)}</span>` : d.st === 'few' ? `<span class="st st-warn">▲ ${leftTxt(d)} porciones</span>` : '<span class="st st-ok">● Disponible</span>';
     const btn = d.st === 'off' ? `<button class="btn sm" style="border-color:var(--green);color:var(--green)" data-act="aOn" data-arg="${d.id}">Reactivar</button>` : `<button class="btn sm" data-act="aAsk" data-arg="${d.id}">Marcar agotado</button>`;
     return `<div class="menu-row"><div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="${d.st === 'off' ? 'struck' : ''}" style="font-weight:600">${esc(d.name)}</span>${st}</div>${btn}</div>`;
   }).join('');
@@ -323,32 +467,34 @@ function aKitchen() {
 }
 
 function aWaiter() {
-  const A = S.A, mine = aActive().filter(o => o.mesero === 'Andrés');
+  const A = S.A, me = waiterName(), mine = aActive().filter(o => o.mesero === me);
+  const calls = A.calls.filter(c => c.mesero === me);
   const unread = A.notices.filter(n => !n.mine && dishById(n.dish)?.st === 'off');
   const lateMine = mine.filter(isLate);
   const tab = A.waiterTab;
   let body;
   if (tab === 'mesas') {
-    const alerts = unread.map(n => `<div class="alert a-dark">${ic('ban', 22, '#fff')}<div class="grow"><span class="tt">Se agotó: ${esc(dishById(n.dish).name)}</span><span style="font-size:12px;color:#D9DCD9">Cocina · ${hm(n.t)} · ya no lo ofrezcas</span></div><button class="btn sm" style="background:#fff;border-color:#fff;color:var(--ink)" data-act="aAck" data-arg="${n.id}">Entendido</button></div>`).join('')
+    const alerts = unread.map(n => `<div class="alert a-dark">${ic('ban', 22, '#fff')}<div class="grow"><span class="tt">Se agotó: ${esc(dishById(n.dish).name)}</span><span style="font-size:12px;color:#D9DCD9">Cocina · ${hm(n.t)} · ya no lo ofrezcas</span></div><button class="btn sm" style="background:#fff;border-color:#fff;color:var(--ink)" data-act="aAck" data-arg="${n._key}">Entendido</button></div>`).join('')
+      + calls.map(c => `<div class="alert a-warn" style="border:1px solid var(--warn-line)">${ic('bell', 22, 'var(--warn)')}<div class="grow"><span class="tt">${esc(c.mesa)} te necesita</span><span style="font-size:12px">El socio te llamó desde la app · ${hm(c.t)}</span></div><button class="btn sm primary" data-act="aCallDone" data-arg="${c._key}">Voy</button></div>`).join('')
       + lateMine.map(o => `<div class="alert a-bad" style="border:1px solid var(--bad-line)">${ic('clock', 22, 'var(--bad)')}<div class="grow"><span class="tt">Mesa ${o.mesa} · el pedido va en ${elapsed(o)} min</span><span style="font-size:12px;color:var(--bad-ink)">Cocina ya lo ve como retrasado. Avísale a la mesa.</span></div></div>`).join('');
     const cards = mine.sort((a, b) => a.mesa - b.mesa).map(o => {
       const late = isLate(o), e = elapsed(o);
       const st = o.st === 'listo' ? `<span class="st st-ok">✓ Recoger en el pase</span>` : late ? `<span class="st" style="color:var(--bad)">▲ Retrasado · #${o.id}</span>` : o.st === 'prep' ? `<span class="st st-warn">● En preparación</span>` : `<span class="st" style="color:var(--muted)">○ Pendiente en cocina</span>`;
-      return `<div class="tcard ${late ? 'late' : o.st === 'listo' ? 'ready' : ''}"><div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:16px">Mesa ${o.mesa}</b><b class="tnum" style="font-size:13px;color:${late ? 'var(--bad)' : o.st === 'listo' ? 'var(--ok)' : 'var(--muted)'}">${o.st === 'listo' ? 'Listo' : e + ' min'}</b></div>${st}${o.st === 'listo' ? `<button class="btn sm ok" style="margin-top:4px" data-act="aMove" data-arg="${o.id}:entregado">Entregado</button>` : ''}</div>`;
+      return `<div class="tcard ${late ? 'late' : o.st === 'listo' ? 'ready' : ''}"><div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:16px">Mesa ${o.mesa}</b><b class="tnum" style="font-size:13px;color:${late ? 'var(--bad)' : o.st === 'listo' ? 'var(--ok)' : 'var(--muted)'}">${o.st === 'listo' ? 'Listo' : e + ' min'}</b></div>${st}${o.st === 'listo' ? `<button class="btn sm ok" style="margin-top:4px" data-act="aMove" data-arg="${o._key}:entregado">Entregado</button>` : ''}</div>`;
     }).join('');
     body = `${alerts}<h3 class="h3s">Mis mesas <span>Meta: ${A_GOAL} min</span></h3><div class="grid2">${cards || '<p class="empty" style="grid-column:span 2">No tienes pedidos activos.</p>'}</div>`;
   } else if (tab === 'menu') {
-    body = ['Fuertes', 'Sopas', 'Bebidas'].map(c => `<h3 class="h3s">${c} <span>Actualizado al instante</span></h3><div class="list">${A.menu.filter(d => d.cat === c).map(d => `<div class="li"><div style="min-width:0"><div class="nm ${d.st === 'off' ? 'struck' : ''}">${esc(d.name)}</div><div class="ds">${d.st === 'off' ? 'Desde las ' + hm(d.since) : 'Sale en ~' + d.min + ' min'}</div></div>${d.st === 'off' ? '<span class="tag-off">Agotado</span>' : d.st === 'few' ? `<span class="st st-warn">Quedan ${d.left}</span>` : '<span class="st st-ok">Disponible</span>'}</div>`).join('')}</div>`).join('');
+    body = cats(A.menu).map(c => `<h3 class="h3s">${esc(c)} <span>Actualizado al instante</span></h3><div class="list">${A.menu.filter(d => d.cat === c).map(d => `<div class="li"><div style="min-width:0"><div class="nm ${d.st === 'off' ? 'struck' : ''}">${esc(d.name)}</div><div class="ds">${d.st === 'off' ? 'Agotado' + sinceTxt(d, ' desde las ') : 'Sale en ~' + d.min + ' min'}</div></div>${d.st === 'off' ? '<span class="tag-off">Agotado</span>' : d.st === 'few' ? `<span class="st st-warn">${leftTxt(d)}</span>` : '<span class="st st-ok">Disponible</span>'}</div>`).join('')}</div>`).join('');
   } else {
     const dr = A.draft, n = sum(Object.values(dr.items), x => x);
     body = `<h3 class="h3s">Mesa</h3><div class="chips">${[4, 9, 10, 12, 14].map(m => `<button class="chip-b" data-act="aMesa" data-arg="${m}" aria-pressed="${dr.mesa === m}">Mesa ${m}</button>`).join('')}</div>
       <h3 class="h3s">Platos <span>Solo puedes pedir lo disponible</span></h3>
-      <div class="list" data-scroll="a-new">${A.menu.map(d => { const q = dr.items[d.id] || 0; return `<div class="li"><div style="min-width:0"><div class="nm ${d.st === 'off' ? 'struck' : ''}">${esc(d.name)}</div><div class="ds">${d.st === 'off' ? 'Agotado' : d.st === 'few' ? 'Quedan ' + d.left + ' · ~' + d.min + ' min' : '~' + d.min + ' min'}</div></div>${d.st === 'off' ? '<span class="tag-off">Agotado</span>' : `<div class="stepper"><button data-act="aQty" data-arg="${d.id}:-1" aria-label="Quitar ${esc(d.name)}" ${q ? '' : 'disabled'}>−</button><output class="tnum">${q}</output><button class="plus" data-act="aQty" data-arg="${d.id}:1" aria-label="Agregar ${esc(d.name)}">+</button></div>`}</div>`; }).join('')}</div>
+      <div class="list" data-scroll="a-new">${A.menu.map(d => { const q = dr.items[d.id] || 0; return `<div class="li"><div style="min-width:0"><div class="nm ${d.st === 'off' ? 'struck' : ''}">${esc(d.name)}</div><div class="ds">${d.st === 'off' ? 'Agotado' : d.st === 'few' ? leftTxt(d) + ' · ~' + d.min + ' min' : '~' + d.min + ' min'}</div></div>${d.st === 'off' ? '<span class="tag-off">Agotado</span>' : `<div class="stepper"><button data-act="aQty" data-arg="${d.id}:-1" aria-label="Quitar ${esc(d.name)}" ${q ? '' : 'disabled'}>−</button><output class="tnum">${q}</output><button class="plus" data-act="aQty" data-arg="${d.id}:1" aria-label="Agregar ${esc(d.name)}">+</button></div>`}</div>`; }).join('')}</div>
       <button class="btn primary block" data-act="aSend" ${n ? '' : 'disabled'}>Enviar a cocina · ${n} plato${n === 1 ? '' : 's'}</button>`;
   }
-  const badge = unread.length + lateMine.length;
+  const badge = unread.length + lateMine.length + calls.length;
   return `<div class="phone">
-    <div class="ph-head"><div><h3>Hola, Andrés</h3><small>Terraza · ${hmp(S.clock)} · ${mine.length} mesas activas</small></div>
+    <div class="ph-head"><div><h3>Hola, ${esc(me)}</h3><small>Terraza · ${hmp(S.clock)} · ${mine.length} mesas activas</small></div>
       <button class="bell" data-act="aWTab" data-arg="mesas" aria-label="Alertas: ${badge} nuevas">${ic('bell', 20)}${badge ? `<b>${badge}</b>` : ''}</button></div>
     <div class="ph-body" data-scroll="a-phone">${body}</div>
     <nav class="ph-nav" aria-label="Secciones del mesero">
@@ -405,10 +551,10 @@ function bPlan() {
   const rows = B.dishes.map(d => { const sug = Math.round(d.base * factor * (d.clima || 1) + (d.extra || 0)); const adj = Math.round((sug / d.base - 1) * 100);
     return `<tr><td><b>${d.name}</b></td><td>${d.base}</td><td style="color:var(--ok);font-weight:700">${adj >= 0 ? '+' : ''}${adj} %${d.note ? ` <span class="sub" style="font-weight:400">(${d.note})</span>` : ''}</td><td style="font-size:17px;font-weight:700">${sug}</td><td style="color:${d.warn ? 'var(--warn)' : 'var(--ok)'};font-weight:700">${d.warn ? '▲ ' + d.stock : '✓ Completos'}</td></tr>`; }).join('');
   return `<div class="screen">
-    ${appHead('Domingo previsto · Planeación de cocina', 'Chef ejecutivo', 'Sábado 25 · 4:00 p. m.')}
+    ${appHead('Domingo previsto · Planeación de cocina', 'Chef ejecutivo', `${todayLabel()} · ${hmp(S.clock)}`)}
     <div class="sbody">
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px">
-        <div><h2 style="margin:0;font-family:var(--display);font-size:24px;color:var(--green)">Así viene el domingo 26 de octubre</h2><span class="sub">Histórico de los últimos domingos, más lo que socios y eventos ya anunciaron</span></div>
+        <div><h2 style="margin:0;font-family:var(--display);font-size:24px;color:var(--green)">Así viene el ${sundayLabel()}</h2><span class="sub">Histórico de los últimos domingos, más lo que socios y eventos ya anunciaron</span></div>
         <button class="btn ${B.sentWarehouse ? '' : 'primary'}" data-act="bWarehouse" ${B.sentWarehouse ? 'disabled' : ''}>${B.sentWarehouse ? '✓ Pedido enviado al almacén' : 'Enviar pedido al almacén'}</button>
       </div>
       <div class="kpis">
@@ -459,7 +605,7 @@ function bRecep() {
   const arr = B.arrivals.map(a => { const t = bSuggestTable(a); return `<div class="stack" style="gap:6px;padding:12px;border-radius:12px;background:var(--green-soft)"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(a.name)}</b><span class="st st-ok">Confirmó · ${a.time}</span></div><span class="sub" style="color:var(--ink)">${a.fam} de la familia${a.inv ? ' + ' + a.inv + ' invitados' : ''} · prefiere ${a.zona === 'aire' ? 'aire' : a.zona === 'terraza' ? 'terraza' : 'Palmas'}</span>${t ? `<button class="btn primary sm" data-act="bAssign" data-arg="${a.id}:${t.id}">Asignar mesa ${t.id} (${t.cap} p.) y avisar al mesero</button>` : '<span class="st st-warn">No hay mesa libre del tamaño: pasa a la lista de espera</span>'}</div>`; }).join('') || '<p class="empty">Nadie más confirmó para esta hora.</p>';
   const wait = B.wait.map(w => `<div class="stack" style="gap:6px;padding:12px;border-radius:12px;border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(w.name)}</b><span class="st st-warn">~${w.n > 4 ? 10 : 5} min</span></div><span class="sub" style="color:var(--ink)">${w.n} personas · no avisó · ${esc(w.zona)}</span>${w.notified ? `<span class="st st-ok">✓ Avisado al celular · ${hm(w.notified)}</span>` : `<button class="btn sm" style="border-color:var(--green);color:var(--green)" data-act="bNotify" data-arg="${w.id}">Avisarle al celular cuando esté lista</button>`}</div>`).join('') || '<p class="empty">No hay nadie esperando.</p>';
   return `<div class="screen">
-    ${appHead('Domingo previsto · Recepción de mesas', 'Anfitriona: Laura', `Domingo 26 · ${hmp(S.clock)}`)}
+    ${appHead('Domingo previsto · Recepción de mesas', 'Anfitriona: Laura', `${todayLabel()} · ${hmp(S.clock)}`)}
     <div class="sbody">
       <div class="kpis">
         <div class="kpi"><span class="l" style="color:var(--ok)">Mesas libres</span><span class="v">${libres}</span></div>
@@ -488,10 +634,11 @@ function bSocio() {
       <span style="width:56px;height:56px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:grid;place-items:center">${ic('check', 28, 'currentColor', 3)}</span>
       <h3 style="margin:0;font-family:var(--display);font-size:22px;color:var(--green)">¡Los esperamos!</h3>
       <p style="margin:0;font-size:14px">${c.fam + c.inv} personas · ${c.slot} ${hourOf(c.slot) < 12 ? 'a. m.' : 'p. m.'} · ${c.zona === 'aire' ? 'Comedor con aire' : c.zona === 'terraza' ? 'Terraza' : 'Comedor Palmas'}</p>
-      <p class="sub" style="margin:0">Tus ${c.inv} invitados ya quedaron registrados en portería. La cocina ya te tiene en cuenta.</p>
+      <p class="sub" style="margin:0">${c.inv ? `Tus ${c.inv} invitados ya quedaron registrados en portería. ` : ''}La cocina ya te tiene en cuenta.</p>
+      ${c.seated ? `<span class="badge bg-ok">Recepción te asignó la mesa ${esc(c.table)}</span>` : ''}
     </div>
     <div class="alert a-ok">${ic('users', 20, 'var(--ok)')}<div class="grow"><span class="tt">Al llegar</span><span>Recepción te asigna mesa en la zona que elegiste; no tienes que buscarla.</span></div></div>
-    <button class="btn block" data-act="bUndo">Cambiar o cancelar mi llegada</button>`;
+    ${c.seated ? '' : '<button class="btn block" data-act="bUndo">Cambiar o cancelar mi llegada</button>'}`;
   } else {
     const slots = SLOTS.map(([s, h]) => { const [lab, col, p] = occ(h); return `<button class="slot" data-act="bSlot" data-arg="${s}" aria-pressed="${f.slot === s}" aria-label="${s}, ${lab}"><b>${s}</b><span class="occ"><i style="width:${Math.min(100, Math.round(p * 100))}%;background:${col}"></i></span><small style="color:${col}">${lab}</small></button>`; }).join('');
     const zones = [['aire', 'Comedor con aire acondicionado', 'snow', 'Pocas mesas', 'var(--warn)'], ['terraza', 'Terraza', 'sun', 'Disponible', 'var(--ok)'], ['palmas', 'Comedor Palmas', 'fork', 'Disponible', 'var(--ok)']]
@@ -510,7 +657,7 @@ function bSocio() {
     <span class="sub" style="text-align:center">Puedes cambiarlo hasta el domingo a las 10:00 a. m.</span>`;
   }
   return `<div class="phone">
-    <div class="ph-head"><div><small style="letter-spacing:1.5px;text-transform:uppercase">Mi club · acción 1482</small><h3>Planea tu domingo</h3><small>Domingo 26 de octubre · almuerzo</small></div></div>
+    <div class="ph-head"><div><small style="letter-spacing:1.5px;text-transform:uppercase">Mi club · acción 1482</small><h3>Planea tu domingo</h3><small>${sundayLabel().replace(/^d/, 'D')} · almuerzo</small></div></div>
     <div class="ph-body" data-scroll="b-phone">${body}</div></div>`;
 }
 
@@ -520,7 +667,10 @@ function bSocio() {
 const cDish = id => S.C.menu.find(d => d.id === id);
 const cartTotal = () => sum(S.C.cart, x => x.price * x.qty);
 const cartCount = () => sum(S.C.cart, x => x.qty);
-const myOrder = () => S.C.orders.find(o => o.id === S.C.my);
+const myOrder = () => S.C.orders.find(o => o._key === S.C.my);
+const altFor = d => S.C.menu.find(x => x.cat === d.cat && x.id !== d.id && x.st === 'ok');
+const CAT_ORDER = ['Fuertes', 'Sopas', 'Bebidas'];
+const cats = menu => [...new Set(menu.map(d => d.cat))].sort((a, b) => ((CAT_ORDER.indexOf(a) + 1) || 99) - ((CAT_ORDER.indexOf(b) + 1) || 99) || a.localeCompare(b, 'es'));
 const itemReady = it => it.checks.every(c => c.d) && (it.temp == null || it.temp >= 63);
 
 function viewC() {
@@ -537,10 +687,10 @@ function viewC() {
 
 function cPase() {
   const C = S.C, q = C.orders.filter(o => o.st === 'pase' || o.st === 'prep');
-  if (!q.find(o => o.id === C.sel)) C.sel = q.find(o => o.st === 'pase')?.id ?? null;
-  const sel = C.orders.find(o => o.id === C.sel);
+  if (!q.find(o => o._key === C.sel && o.st === 'pase')) C.sel = q.filter(o => o.st === 'pase').sort((a, b) => a.t - b.t)[0]?._key ?? null;
+  const sel = C.orders.find(o => o._key === C.sel);
   const queue = q.sort((a, b) => a.t - b.t).map(o => { const e = S.clock - o.t, col = e > 30 ? 'var(--bad)' : e > 20 ? 'var(--warn)' : 'var(--ok)';
-    return `<button data-act="cSel" data-arg="${o.id}" aria-pressed="${o.id === C.sel}" ${o.st === 'prep' ? 'disabled style="opacity:.7"' : ''}><span style="display:flex;justify-content:space-between;width:100%;gap:8px"><b style="font-size:16px">#${o.id} · ${esc(o.mesa)}</b><b class="tnum" style="color:${col}">${e} min</b></span><span class="sub">${sum(o.items, i => i.qty)} platos · ${o.mesero} · ${o.st === 'prep' ? 'en cocina, aún no llega' : o.id === C.my ? 'nuevo · desde la carta' : 'por revisar'}</span></button>`; }).join('') || '<p class="empty">No hay pedidos por despachar.</p>';
+    return `<button data-act="cSel" data-arg="${o._key}" aria-pressed="${o._key === C.sel}" ${o.st === 'prep' ? 'disabled style="opacity:.7"' : ''}><span style="display:flex;justify-content:space-between;width:100%;gap:8px"><b style="font-size:16px">#${o.id} · ${esc(o.mesa)}</b><b class="tnum" style="color:${col}">${e} min</b></span><span class="sub">${sum(o.items, i => i.qty)} platos · ${o.mesero} · ${o.st === 'prep' ? 'en cocina, aún no llega' : o.owner ? 'nuevo · desde la carta' : 'por revisar'}</span></button>`; }).join('') || '<p class="empty">No hay pedidos por despachar.</p>';
   let detail = '<div class="card"><p class="empty">Elige un pedido de la lista para revisarlo.</p></div>';
   if (sel) {
     const e = S.clock - sel.t, allOk = sel.items.every(itemReady);
@@ -550,18 +700,18 @@ function cPase() {
       return `<article class="card" style="display:flex;flex-direction:column;gap:10px;${tempOk ? '' : 'border:2px solid var(--bad)'}">
         <div class="ph-photo">${ic('camera', 26, 'currentColor', 1.8)}<span>Foto estándar: ${esc(it.name)}</span></div>
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><b style="font-size:16px">${it.qty}× ${esc(it.name)}</b><b class="tnum" style="font-size:13px;color:${done === total && tempOk ? 'var(--ok)' : 'var(--warn)'}">${done} de ${total}</b></div>
-        ${it.checks.map((c, j) => `<label class="check"><input type="checkbox" id="chk-${sel.id}-${k}-${j}" data-act="cCheck" data-arg="${sel.id}:${k}:${j}" ${c.d ? 'checked' : ''}><span>${esc(c.l)}</span></label>`).join('')}
+        ${it.checks.map((c, j) => `<label class="check"><input type="checkbox" id="chk-${sel._key}-${k}-${j}" data-act="cCheck" data-arg="${sel._key}:${k}:${j}" ${c.d ? 'checked' : ''}><span>${esc(c.l)}</span></label>`).join('')}
         ${it.temp == null ? `<div class="temp" style="background:var(--neutral-bg)">${ic('glass', 18, 'var(--muted)')}<span>Bebida fría · no requiere medir temperatura</span></div>`
           : tempOk ? `<div class="temp" style="background:var(--ok-bg);color:#17402A">${ic('therm', 18, 'var(--ok)')}<span><b>${it.temp} °C</b> · temperatura correcta</span></div>`
-          : `<div class="temp" style="background:var(--bad-bg);color:var(--bad-ink)">${ic('therm', 18, 'var(--bad)')}<span><b style="color:var(--bad)">${it.temp} °C</b> · por debajo de 63 °C</span></div><button class="btn badline sm" data-act="cHeat" data-arg="${sel.id}:${k}">Calentar y volver a medir</button>`}
+          : `<div class="temp" style="background:var(--bad-bg);color:var(--bad-ink)">${ic('therm', 18, 'var(--bad)')}<span><b style="color:var(--bad)">${it.temp} °C</b> · por debajo de 63 °C</span></div><button class="btn badline sm" data-act="cHeat" data-arg="${sel._key}:${k}">Calentar y volver a medir</button>`}
       </article>`;
     }).join('');
     detail = `<section class="card" style="display:flex;flex-direction:column;gap:14px">
-      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-end"><div><h2 style="font-family:var(--display);font-size:22px">Pedido #${sel.id} · ${esc(sel.mesa)}</h2><span class="sub">Comanda a las ${hm(sel.t)} · mesero ${sel.mesero}${sel.id === C.my ? ' · el socio lo sigue en su celular' : ''}</span></div><span class="badge ${e > 30 ? 'bg-neu' : 'bg-ok'}" style="${e > 30 ? 'background:var(--bad-bg);color:var(--bad)' : ''}">${e} min · prometido a la ${hm(sel.t + 30)}</span></div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-end"><div><h2 style="font-family:var(--display);font-size:22px">Pedido #${sel.id} · ${esc(sel.mesa)}</h2><span class="sub">Comanda a las ${hm(sel.t)} · mesero ${sel.mesero}${sel.owner ? ' · el socio lo sigue en su celular' : ''}</span></div><span class="badge ${e > 30 ? 'bg-neu' : 'bg-ok'}" style="${e > 30 ? 'background:var(--bad-bg);color:var(--bad)' : ''}">${e} min · prometido a la ${hm(sel.t + 30)}</span></div>
       <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">${cards}</div>
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #F0EBE0;padding-top:12px">
         <span class="sub">${allOk ? 'Todo revisado. Al despachar, el socio ve “En camino”.' : 'Completa la lista y corrige la temperatura para poder despachar.'}</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="cNotify" data-arg="${sel.id}" ${sel.notified ? 'disabled' : ''}>${sel.notified ? '✓ Demora avisada' : 'Avisar demora al socio'}</button><button class="btn primary" data-act="cDispatch" data-arg="${sel.id}" ${allOk ? '' : 'disabled'}>Despachar a ${esc(sel.mesa)}</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="cNotify" data-arg="${sel._key}" ${sel.notified ? 'disabled' : ''}>${sel.notified ? '✓ Demora avisada' : 'Avisar demora al socio'}</button><button class="btn primary" data-act="cDispatch" data-arg="${sel._key}" ${allOk ? '' : 'disabled'}>Despachar a ${esc(sel.mesa)}</button></div>
       </div></section>`;
   }
   return `<div class="screen">
@@ -589,9 +739,10 @@ function cPhone() {
   const C = S.C;
   let body, bottom = '';
   if (C.phone === 'carta') {
-    const tabs = ['Fuertes', 'Sopas', 'Bebidas'].map(c => `<button class="chip-b" data-act="cCat" data-arg="${c}" aria-pressed="${C.cat === c}">${c}</button>`).join('');
+    const cs = cats(C.menu); if (cs.length && !cs.includes(C.cat)) C.cat = cs[0];
+    const tabs = cs.map(c => `<button class="chip-b" data-act="cCat" data-arg="${esc(c)}" aria-pressed="${C.cat === c}">${esc(c)}</button>`).join('');
     const dishes = C.menu.filter(d => d.cat === C.cat).map(d => {
-      if (d.st === 'off') return `<article class="dish off"><div class="r1"><span class="thumb">${ic('ban', 24, 'var(--muted)', 1.8)}</span><div style="flex:1;min-width:0"><div class="struck" style="font-weight:700">${esc(d.name)}</div><div class="sub" style="color:#3E4440">Se agotó hoy a las 12:31. Te sugerimos la bandeja paisa.</div></div></div></article>`;
+      if (d.st === 'off') return `<article class="dish off"><div class="r1"><span class="thumb">${ic('ban', 24, 'var(--muted)', 1.8)}</span><div style="flex:1;min-width:0"><div class="struck" style="font-weight:700">${esc(d.name)}</div><div class="sub" style="color:#3E4440">Se agotó hoy${sinceTxt(d, ' a las ')}.${altFor(d) ? ` Te sugerimos ${esc(altFor(d).name.toLowerCase())}.` : ''}</div></div></div></article>`;
       const badge = d.fast ? `<span class="badge bg-ok">Rápido · ~${d.min} min</span>` : d.st === 'few' ? `<span class="badge bg-warn">Quedan pocas · ~${d.min} min</span>` : `<span class="badge bg-neu">~${d.min} min</span>`;
       const inCart = sum(C.cart.filter(x => x.id === d.id), x => x.qty);
       const open = C.open === d.id;
@@ -652,51 +803,89 @@ function appHead(t, who, chip) {
 }
 
 /* ---------- acciones ---------- */
+// Lo que es de la interfaz (pestañas, borradores, carrito) cambia S; lo que deben ver
+// los demás perfiles se guarda con commit() en la base compartida.
+const findA = key => S.A.orders.find(x => x._key === key);
+const findC = key => S.C.orders.find(x => x._key === key);
 const H = {
-  view: v => { S.view = v; try { history.replaceState(null, '', '#' + v); } catch { location.hash = v; } window.scrollTo({ top: 0 }); },
-  tick: n => { S.clock += Number(n); toast(`Reloj de la demo: ${hmp(S.clock)}`); },
-  reset: () => { timers.forEach(id => { clearTimeout(id); clearInterval(id); }); timers.clear(); const v = S.view, p = S.profile; S = initial(); S.view = v; S.profile = p; if (firebaseProducts) applyFirebaseProducts(firebaseProducts); toast('La demo volvió al inicio'); },
+  view: v => { if (S.profile && !allowedViews().includes(v)) return; S.view = v; try { history.replaceState(null, '', '#' + v); } catch { location.hash = v; } window.scrollTo({ top: 0 }); },
+  tick: n => { S.clockOffset += Number(n); hydrate(); toast(`Reloj de la demo: ${hmp(S.clock)}`); },
+  reset: () => {
+    if (!window.confirm('¿Reiniciar la demo? Se borran los pedidos, avisos y confirmaciones de todos los perfiles y se vuelve al escenario inicial.')) return;
+    S.clockOffset = 0; commit(seedOps(true)); toast('La demo volvió al inicio para todos los perfiles');
+  },
 
   aScreen: s => { S.A.screen = s; },
-  aMove: arg => { const [id, st] = arg.split(':'); const o = S.A.orders.find(x => x.id === Number(id)); if (!o) return;
-    o.st = st; if (st === 'listo') toast(`Pedido #${o.id} listo · avisamos a ${o.mesero}`); if (st === 'entregado') toast(`Pedido #${o.id} entregado en ${PUNTO[o.punto]}, mesa ${o.mesa}`); },
+  aMove: arg => { const [key, st] = arg.split(':'); const o = findA(key); if (!o) return;
+    commit([{ p: `orders/${key}/st`, v: st }]);
+    if (st === 'listo') toast(`Pedido #${o.id} listo · avisamos a ${o.mesero}`);
+    if (st === 'entregado') toast(`Pedido #${o.id} entregado en ${PUNTO[o.punto] || o.punto}, mesa ${o.mesa}`); },
   aAsk: id => { S.A.confirming = id; },
   aCancel: () => { S.A.confirming = null; },
-  aOff: id => { const A = S.A, d = dishById(id); if (!d) return; d.st = 'off'; d.since = S.clock; A.confirming = null;
-    const n = { id: Date.now(), dish: id, t: S.clock, conf: 0, mine: false }; A.notices.push(n);
-    toast(`${d.name} quedó agotada · aviso enviado a ${A.staff} meseros`);
-    every(() => { if (!A.notices.includes(n)) return false; const others = A.staff - 1; if (n.conf - (n.mine ? 1 : 0) >= others) return false; n.conf++; render(); return true; }, 380); },
-  aOn: id => { const d = dishById(id); if (!d) return; d.st = 'ok'; d.left = null; S.A.notices = S.A.notices.filter(n => n.dish !== id); toast(`${d.name} vuelve a estar disponible en todos los puntos`); },
-  aAck: id => { const n = S.A.notices.find(x => x.id === Number(id)); if (n && !n.mine) { n.mine = true; n.conf = Math.min(S.A.staff, n.conf + 1); toast('Cocina ve que ya leíste el aviso'); } },
+  aOff: id => { const A = S.A, d = dishById(id); if (!d) return; A.confirming = null;
+    commit([
+      { p: `products/${id}/st`, v: 'off' }, { p: `products/${id}/since`, v: S.clock }, { p: `products/${id}/left`, v: null },
+      { p: `notices/${newKey('n')}`, v: { dish: id, t: S.clock, createdAt: Date.now(), acked: false } }
+    ]);
+    toast(`${d.name} quedó agotada · aviso enviado a ${A.staff} meseros`); },
+  aOn: id => { const d = dishById(id); if (!d) return;
+    commit([
+      { p: `products/${id}/st`, v: 'ok' }, { p: `products/${id}/left`, v: null }, { p: `products/${id}/since`, v: null },
+      ...S.A.notices.filter(n => n.dish === id).map(n => ({ p: `notices/${n._key}`, v: null }))
+    ]);
+    toast(`${d.name} vuelve a estar disponible en todos los puntos`); },
+  aAck: key => { const n = S.A.notices.find(x => x._key === key); if (n && !n.mine) { commit([{ p: `notices/${key}/acked`, v: true }]); toast('Cocina ve que ya leíste el aviso'); } },
+  aCallDone: key => { const c = S.A.calls.find(x => x._key === key); if (!c) return; commit([{ p: `calls/${key}`, v: null }]); toast(`Vas en camino a ${c.mesa}`); },
   aWTab: t => { S.A.waiterTab = t; },
   aMesa: m => { S.A.draft.mesa = Number(m); },
   aQty: arg => { const [id, d] = arg.split(':'); const it = S.A.draft.items; it[id] = Math.max(0, (it[id] || 0) + Number(d)); if (!it[id]) delete it[id]; },
-  aSend: () => { const A = S.A, dr = A.draft; const items = Object.entries(dr.items).map(([id, q]) => [q, dishById(id).name, '']); if (!items.length) return;
-    const o = { id: A.nextId++, punto: 'Terraza', mesa: dr.mesa, mesero: 'Andrés', t: S.clock, st: 'pend', items };
-    A.orders.push(o); dr.items = {}; A.waiterTab = 'mesas'; toast(`Pedido #${o.id} enviado a cocina · mesa ${o.mesa}`); },
+  aSend: () => { const A = S.A, dr = A.draft;
+    const items = Object.entries(dr.items).filter(([id]) => dishById(id)).map(([id, q]) => [q, dishById(id).name, '']);
+    if (!items.length) return;
+    const o = { id: nextNum(A.orders, 243), punto: 'Terraza', mesa: dr.mesa, mesero: waiterName(), t: S.clock, st: 'pend', items, createdAt: Date.now(), owner: uid() };
+    commit([{ p: `orders/${newKey('o')}`, v: o }]);
+    dr.items = {}; A.waiterTab = 'mesas';
+    toast(`Pedido #${o.id} enviado a cocina · mesa ${o.mesa}`); },
 
   bScreen: s => { S.B.screen = s; },
   bQty: arg => { const [k, d] = arg.split(':'); const f = S.B.form; f[k] = Math.max(k === 'fam' ? 1 : 0, Math.min(12, f[k] + Number(d))); },
   bSlot: s => { S.B.form.slot = s; },
   bZona: z => { S.B.form.zona = z; },
-  bConfirm: () => { const B = S.B, f = B.form, x = B.hours.find(h => h.h === hourOf(f.slot)); x.s += f.fam; x.i += f.inv;
-    B.confirmed = { ...f }; B.arrivals.push({ id: 'me', name: 'Familia de la acción 1482', fam: f.fam, inv: f.inv, time: f.slot, zona: f.zona });
+  bConfirm: () => { const B = S.B, f = B.form; if (B.confirmed) return;
+    const k = B.hours.findIndex(h => h.h === hourOf(f.slot));
+    commit([
+      { p: `plan/hours/${k}/s`, inc: f.fam }, { p: `plan/hours/${k}/i`, inc: f.inv },
+      { p: `arrivals/${socioKey()}`, v: { name: 'Familia de la acción 1482', fam: f.fam, inv: f.inv, time: f.slot, slot: f.slot, zona: f.zona, cel: f.cel, owner: uid(), createdAt: Date.now() } }
+    ]);
     toast('Confirmado: la cocina y la recepción ya te tienen en cuenta'); },
-  bUndo: () => { const B = S.B, c = B.confirmed; if (!c) return; const x = B.hours.find(h => h.h === hourOf(c.slot)); x.s -= c.fam; x.i -= c.inv;
-    B.arrivals = B.arrivals.filter(a => a.id !== 'me'); B.confirmed = null; toast('Tu aviso quedó cancelado'); },
-  bSuggest: () => { const B = S.B, x13 = B.hours.find(h => h.h === 13), x12 = B.hours.find(h => h.h === 12), x14 = B.hours.find(h => h.h === 14);
+  bUndo: () => { const B = S.B, c = B.confirmed; if (!c) return;
+    const k = B.hours.findIndex(h => h.h === hourOf(c.slot));
+    commit([{ p: `plan/hours/${k}/s`, inc: -c.fam }, { p: `plan/hours/${k}/i`, inc: -c.inv }, { p: `arrivals/${socioKey()}`, v: null }]);
+    B.form = { fam: c.fam, inv: c.inv, slot: c.slot, zona: c.zona, cel: Boolean(c.cel) };
+    toast('Tu aviso quedó cancelado'); },
+  bSuggest: () => { const B = S.B; if (B.suggested) return;
+    const k = h => B.hours.findIndex(x => x.h === h), x13 = B.hours[k(13)];
     const people = Math.min(x13.s + x13.i, Math.max(0, hTot(x13) - B.cap) + 12), s = Math.round(people * 0.65), i = people - s;
-    x13.s -= s; x13.i -= i; x12.s += Math.ceil(s / 2); x12.i += Math.ceil(i / 2); x14.s += Math.floor(s / 2); x14.i += Math.floor(i / 2);
-    B.suggested = { fam: 18, people }; toast(`Sugerencia enviada · ${people} personas cambian de horario`); },
-  bWarehouse: () => { S.B.sentWarehouse = true; toast('Pedido de insumos enviado al almacén'); },
+    commit([
+      { p: `plan/hours/${k(13)}/s`, inc: -s }, { p: `plan/hours/${k(13)}/i`, inc: -i },
+      { p: `plan/hours/${k(12)}/s`, inc: Math.ceil(s / 2) }, { p: `plan/hours/${k(12)}/i`, inc: Math.ceil(i / 2) },
+      { p: `plan/hours/${k(14)}/s`, inc: Math.floor(s / 2) }, { p: `plan/hours/${k(14)}/i`, inc: Math.floor(i / 2) },
+      { p: 'plan/suggested', v: { fam: 18, people } }
+    ]);
+    toast(`Sugerencia enviada · ${people} personas cambian de horario`); },
+  bWarehouse: () => { commit([{ p: 'plan/sentWarehouse', v: true }]); toast('Pedido de insumos enviado al almacén'); },
   bAssign: arg => { const [aid, tid] = arg.split(':'); const B = S.B, a = B.arrivals.find(x => x.id === aid), t = B.zones.flatMap(z => z.tables).find(x => x.id === tid);
-    if (!a || !t) return; t.st = 'ocu'; t.who = null; B.arrivals = B.arrivals.filter(x => x.id !== aid); toast(`${a.name}: mesa ${t.id} asignada · el mesero ya fue avisado`); },
+    if (!a || !t) return;
+    commit([{ p: `tables/${tid}`, v: { st: 'ocu' } }, { p: `arrivals/${aid}/seated`, v: true }, { p: `arrivals/${aid}/table`, v: tid }]);
+    toast(`${a.name}: mesa ${t.id} asignada · el mesero ya fue avisado`); },
   bTable: tid => { const B = S.B, t = B.zones.flatMap(z => z.tables).find(x => x.id === tid); if (!t) return;
-    if (t.st === 'ocu') { t.st = 'pronto'; toast(`Mesa ${t.id} pidió la cuenta`); }
-    else if (t.st === 'pronto') { t.st = 'libre'; toast(`Mesa ${t.id} quedó libre`); }
-    else if (t.st === 'libre') { const w = B.wait.find(x => x.n <= t.cap); if (w) { t.st = 'ocu'; B.wait = B.wait.filter(x => x !== w); toast(`${w.name} pasa a la mesa ${t.id}`); } else toast(`Mesa ${t.id} libre · nadie en espera cabe en ella`); }
+    if (t.st === 'ocu') { commit([{ p: `tables/${tid}/st`, v: 'pronto' }]); toast(`Mesa ${t.id} pidió la cuenta`); }
+    else if (t.st === 'pronto') { commit([{ p: `tables/${tid}/st`, v: 'libre' }]); toast(`Mesa ${t.id} quedó libre`); }
+    else if (t.st === 'libre') { const w = B.wait.find(x => x.n <= t.cap);
+      if (w) { commit([{ p: `tables/${tid}/st`, v: 'ocu' }, { p: `waitlist/${w.id}`, v: null }]); toast(`${w.name} pasa a la mesa ${t.id}`); }
+      else toast(`Mesa ${t.id} libre · nadie en espera cabe en ella`); }
     else toast(`Mesa ${t.id} está apartada para quien confirmó`); },
-  bNotify: id => { const w = S.B.wait.find(x => x.id === id); if (w) { w.notified = S.clock; toast(`${w.name} recibirá un mensaje cuando su mesa esté lista`); } },
+  bNotify: id => { const w = S.B.wait.find(x => x.id === id); if (w) { commit([{ p: `waitlist/${id}/notified`, v: S.clock }]); toast(`${w.name} recibirá un mensaje cuando su mesa esté lista`); } },
 
   cCat: c => { S.C.cat = c; S.C.open = null; },
   cOpen: id => { S.C.open = id; },
@@ -706,20 +895,34 @@ const H = {
     const ex = C.cart.find(x => x.id === id && x.note === note); if (ex) ex.qty++; else C.cart.push({ id, name: d.name, price: d.price, qty: 1, note, hot: d.hot ?? null });
     C.open = null; C.opts.nota = ''; toast(`${d.name} agregado a tu pedido`); },
   cRemove: k => { S.C.cart.splice(Number(k), 1); },
-  cSend: () => { const C = S.C; if (!C.cart.length) return; const id = C.nextId++;
-    const o = { id, mesa: 'Terraza 12', mesero: 'Andrés', t: S.clock, st: 'prep', notified: false, items: C.cart.map(x => ({ name: x.name, qty: x.qty, note: x.note, temp: x.hot, checks: checksFor(x.name, x.note) })) };
-    C.orders.push(o); C.my = id; C.cart = []; C.phone = 'seg'; C.courtesy = false; C.rating = 0; toast(`Pedido #${id} enviado a cocina`);
-    later(() => { if (o.st === 'prep') { o.st = 'pase'; C.sel = o.id; toast(`El pedido #${id} llegó al pase para revisión`); render(); } }, 4500); },
-  cSel: id => { S.C.sel = Number(id); },
-  cHeat: arg => { const [id, k] = arg.split(':').map(Number); const o = S.C.orders.find(x => x.id === id); if (!o) return; o.items[k].temp = 70; S.C.stats.corr++; toast(`${o.items[k].name}: ahora a 70 °C`); },
-  cNotify: id => { const o = S.C.orders.find(x => x.id === Number(id)); if (o) { o.notified = true; toast(`Avisamos al socio de ${o.mesa} y le ofrecimos una cortesía`); } },
-  cDispatch: id => { const C = S.C, o = C.orders.find(x => x.id === Number(id)); if (!o || !o.items.every(itemReady)) return;
-    o.st = 'camino'; C.stats.rev += sum(o.items, i => i.qty); toast(`Pedido #${o.id} despachado a ${o.mesa}`);
-    later(() => { o.st = 'servido'; if (o.id === C.my) toast(`Pedido #${o.id} servido en la mesa`); render(); }, o.id === C.my ? 5000 : 1200); },
+  cSend: () => { const C = S.C; if (!C.cart.length) return;
+    // Si un plato se agotó mientras estaba en el carrito, no se envía.
+    const gone = C.cart.filter(x => cDish(x.id)?.st === 'off' || !cDish(x.id));
+    if (gone.length) { C.cart = C.cart.filter(x => !gone.includes(x)); toast(`Se agotó: ${gone.map(x => x.name).join(', ')}. Lo quitamos de tu pedido.`); return; }
+    const id = nextNum(C.orders, 249), ms = Date.now();
+    const o = { id, mesa: 'Terraza 12', mesero: 'Andrés', t: S.clock, st: 'prep', notified: false, owner: uid(), createdAt: ms, toPaseAt: ms + 4500,
+      items: C.cart.map(x => ({ name: x.name, qty: x.qty, note: x.note, temp: x.hot, checks: checksFor(x.name, x.note) })) };
+    commit([{ p: `pase/${newKey('p')}`, v: o }]);
+    C.cart = []; C.phone = 'seg'; toast(`Pedido #${id} enviado a cocina`); },
+  cSel: key => { S.C.sel = key; },
+  cHeat: arg => { const [key, k] = arg.split(':'); const o = findC(key); if (!o || !o.items[k]) return;
+    commit([{ p: `pase/${key}/items/${k}/temp`, v: 70 }, { p: 'stats/corr', inc: 1 }]); toast(`${o.items[k].name}: ahora a 70 °C`); },
+  cNotify: key => { const o = findC(key); if (o) { commit([{ p: `pase/${key}/notified`, v: true }]); toast(`Avisamos al socio de ${o.mesa} y le ofrecimos una cortesía`); } },
+  cDispatch: key => { const o = findC(key); if (!o || !o.items.every(itemReady)) return;
+    commit([
+      { p: `pase/${key}/st`, v: 'camino' }, { p: `pase/${key}/servedAt`, v: Date.now() + (o.owner ? 5000 : 1200) },
+      { p: 'stats/rev', inc: sum(o.items, i => i.qty) }
+    ]);
+    toast(`Pedido #${o.id} despachado a ${o.mesa}`); },
   cPhone: p => { S.C.phone = p; },
-  cCourtesy: () => { const o = myOrder(); S.C.courtesy = true; if (o) o.items.push({ name: 'Postre del día (cortesía)', qty: 1, note: '', temp: null, checks: [{ l: 'Completo según la comanda', d: true }] }); toast('Cortesía aceptada'); },
-  cCall: () => { toast('Le avisamos a Andrés que lo necesitas'); },
-  cRate: n => { S.C.rating = Number(n); toast('Gracias por calificar tu almuerzo'); }
+  cCourtesy: () => { const o = myOrder(); if (!o || o.courtesy) return;
+    commit([
+      { p: `pase/${o._key}/courtesy`, v: true },
+      { p: `pase/${o._key}/items/${o.items.length}`, v: { name: 'Postre del día (cortesía)', qty: 1, note: '', checks: [{ l: 'Completo según la comanda', d: true }] } }
+    ]);
+    toast('Cortesía aceptada'); },
+  cCall: () => { commit([{ p: `calls/${newKey('c')}`, v: { mesa: 'Terraza 12', mesero: 'Andrés', t: S.clock, createdAt: Date.now() } }]); toast('Le avisamos a Andrés que lo necesitas'); },
+  cRate: n => { const o = myOrder(); if (!o) return; commit([{ p: `pase/${o._key}/rating`, v: Number(n) }]); toast('Gracias por calificar tu almuerzo'); }
 };
 
 /* ---------- render con memoria de scroll y foco ---------- */
@@ -727,43 +930,82 @@ function render() {
   const keep = {};
   document.querySelectorAll('[data-scroll]').forEach(el => (keep[el.dataset.scroll] = el.scrollTop));
   const ae = document.activeElement, fk = ae && ae.dataset && ae.dataset.act ? ae.dataset.act + '|' + (ae.dataset.arg || '') + '|' + (ae.id || '') : null;
-  $('#clock').textContent = hmp(S.clock);
+  const caret = ae && ae.tagName === 'INPUT' && ae.type === 'text' ? [ae.selectionStart, ae.selectionEnd] : null;
+  $('#clock').textContent = currentTime();
   ['a', 'b', 'c'].forEach(v => $('#tab-' + v).setAttribute('aria-selected', String(S.view === v)));
   const tabs = document.querySelector('.ptabs');
-  if (tabs) tabs.hidden = Boolean(S.profile);
+  if (tabs) tabs.hidden = allowedViews().length < 2;
+  ['a', 'b', 'c'].forEach(v => { $('#tab-' + v).hidden = !allowedViews().includes(v); });
+  // Con perfil solo el Director de A&B puede reiniciar la demo; el +5 min es solo de la demo sin sesión.
+  const tickBtn = $('.clock [data-act="tick"]'), resetBtn = $('.clock [data-act="reset"]');
+  if (tickBtn) tickBtn.hidden = Boolean(S.profile);
+  if (resetBtn) resetBtn.hidden = Boolean(S.profile) && S.profile.role !== 'director';
   const profileLabel = $('#session-profile');
   if (profileLabel) profileLabel.textContent = S.profile ? `Vista de ${S.profile.label}` : 'Prototipos de Alimentos y Bebidas';
-  $('#view').innerHTML = S.view === 'a' ? viewA() : S.view === 'b' ? viewB() : viewC();
+  $('#view').innerHTML = MODE === 'pending'
+    ? '<p class="empty" role="status">Conectando con la base de datos…</p>'
+    : S.view === 'a' ? viewA() : S.view === 'b' ? viewB() : viewC();
   document.querySelectorAll('[data-scroll]').forEach(el => { if (keep[el.dataset.scroll] != null) el.scrollTop = keep[el.dataset.scroll]; });
-  if (fk) { const [act, arg, id] = fk.split('|'); const el = id ? document.getElementById(id) : [...document.querySelectorAll(`[data-act="${act}"]`)].find(x => (x.dataset.arg || '') === arg); if (el && !el.disabled) el.focus({ preventScroll: true }); }
+  if (fk) {
+    const [act, arg, id] = fk.split('|');
+    const el = id ? document.getElementById(id) : [...document.querySelectorAll(`[data-act="${act}"]`)].find(x => (x.dataset.arg || '') === arg);
+    if (el && !el.disabled) { el.focus({ preventScroll: true }); if (caret && el.setSelectionRange) el.setSelectionRange(caret[0], caret[1]); }
+  }
 }
 
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (!el || el.tagName === 'INPUT') return;
   const fn = H[el.dataset.act]; if (!fn) return;
+  if (MODE === 'pending' && !['view', 'tick', 'reset'].includes(el.dataset.act)) return;
   e.preventDefault(); fn(el.dataset.arg, el); render();
 });
 document.addEventListener('change', e => {
   const el = e.target;
-  if (el.dataset.act === 'cCheck') { const [id, k, j] = el.dataset.arg.split(':').map(Number); const o = S.C.orders.find(x => x.id === id); if (o) o.items[k].checks[j].d = el.checked; render(); }
+  if (el.dataset.act === 'cCheck') {
+    const [key, k, j] = el.dataset.arg.split(':');
+    if (findC(key)?.items[k]?.checks[j]) commit([{ p: `pase/${key}/items/${k}/checks/${j}/d`, v: el.checked }]);
+    render();
+  }
   if (el.dataset.act === 'bCel') { S.B.form.cel = el.checked; }
 });
 document.addEventListener('input', e => { if (e.target.dataset.act === 'cNota') S.C.opts.nota = e.target.value; });
 
+/* ---------- conexión con la página principal (Firebase) ---------- */
+const embedded = window.parent !== window;
+function receiveState(mode, db) {
+  const first = MODE === 'pending';
+  if (mode === 'firebase') { MODE = 'firebase'; DB = db && typeof db === 'object' ? db : {}; }
+  else if (first) { MODE = 'local'; DB = {}; }
+  else return;
+  // La primera vez que alguien abre la app con la base vacía, siembra el escenario inicial.
+  if (!DB.meta?.seededAt) commit(seedOps(false));
+  else hydrate();
+  render();
+}
 const h = (location.hash || '').replace('#', '');
 if (['a', 'b', 'c'].includes(h)) S.view = h;
 window.addEventListener('message', event => {
-  if (event.origin !== location.origin) return;
-  if (event.data?.type === 'farallones:products-loaded') {
-    applyFirebaseProducts(event.data.products);
-    return;
-  }
-  if (event.data?.type === 'farallones:session' && event.data.profile?.view) {
-    S.profile = event.data.profile;
-    S.view = event.data.profile.view;
+  if (event.origin !== location.origin || event.source !== window.parent) return;
+  const d = event.data || {};
+  if (d.type === 'farallones:session' && d.profile) {
+    const firstSession = !S.profile || S.profile.uid !== d.profile.uid;
+    S.profile = d.profile;
+    // Conserva la pestaña elegida si la página principal vuelve a enviar la sesión.
+    if (firstSession || !allowedViews().includes(S.view)) S.view = d.profile.view || allowedViews()[0];
+    if (MODE !== 'pending') hydrate();
     render();
   }
+  if (d.type === 'farallones:state') receiveState(d.mode, d.db);
+  if (d.type === 'farallones:write-failed') toast(d.message || 'No se pudo guardar el cambio en la base de datos');
 });
 render();
+if (embedded) window.parent.postMessage({ type: 'farallones:ready' }, location.origin);
+else receiveState('local');
+// Reloj real, confirmaciones que van llegando y pedidos que avanzan solos.
+setInterval(() => {
+  const clock = $('#clock');
+  if (clock) clock.textContent = currentTime();
+  if (MODE !== 'pending' && liveSig() !== lastSig) { hydrate(); render(); }
+}, 500);
 })();

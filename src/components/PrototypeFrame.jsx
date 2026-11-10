@@ -1,55 +1,83 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchProducts } from '../services/firebase'
+import { isFirebaseConfigured, subscribeData, writeOps } from '../services/firebase'
 import { publicProfile } from '../services/profiles'
-import { prototypeUrl, publishProducts } from '../services/prototypeService'
+import { prototypeUrl } from '../services/prototypeService'
 
-function PrototypeFrame({ profile }) {
+// Puente entre el prototipo (iframe) y Firebase:
+// - envía al iframe el perfil de la sesión y el árbol de Realtime Database cada vez que cambia;
+// - recibe del iframe las operaciones de escritura y las guarda en Firebase.
+function PrototypeFrame({ profileKey, uid }) {
   const frameRef = useRef(null)
-  const [status, setStatus] = useState('loading')
+  const [status, setStatus] = useState(isFirebaseConfigured ? 'loading' : 'local')
 
   useEffect(() => {
-    let active = true
+    const origin = window.location.origin
+    const frame = frameRef.current
+    const profile = publicProfile(profileKey, uid)
+    let state = isFirebaseConfigured ? null : { type: 'farallones:state', mode: 'local' }
 
-    fetchProducts()
-      .then((products) => {
-        if (!active) return
-        publishProducts(frameRef.current, products)
-        frameRef.current?.contentWindow?.postMessage(
-          { type: 'farallones:session', profile: publicProfile(profile) },
-          window.location.origin,
-        )
-        setStatus('ready')
-      })
-      .catch((error) => {
-        console.error('No se pudieron cargar los productos de Firebase:', error)
-        if (active) setStatus('demo')
-      })
+    const post = (message) => frame?.contentWindow?.postMessage(message, origin)
+    const sync = () => {
+      post({ type: 'farallones:session', profile })
+      if (state) post(state)
+    }
+
+    const handleMessage = (event) => {
+      if (event.origin !== origin || event.source !== frame?.contentWindow) return
+      const { type, ops } = event.data || {}
+      if (type === 'farallones:ready') sync()
+      if (type === 'farallones:write' && Array.isArray(ops)) {
+        writeOps(ops).catch((error) => {
+          console.error('No se pudo guardar en Realtime Database:', error)
+          post({
+            type: 'farallones:write-failed',
+            message: 'No se pudo guardar el cambio en Firebase. Revisa la conexión o las reglas de la base de datos.',
+          })
+        })
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    frame?.addEventListener('load', sync)
+
+    let unsubscribe = () => {}
+    if (isFirebaseConfigured) {
+      unsubscribe = subscribeData(
+        (db) => {
+          state = { type: 'farallones:state', mode: 'firebase', db }
+          post(state)
+          setStatus('ready')
+        },
+        (error) => {
+          console.error('No se pudo leer Realtime Database:', error)
+          setStatus('error')
+        },
+      )
+    }
+    sync()
 
     return () => {
-      active = false
+      unsubscribe()
+      window.removeEventListener('message', handleMessage)
+      frame?.removeEventListener('load', sync)
     }
-  }, [profile])
-
-  function handleLoad() {
-    frameRef.current?.contentWindow?.postMessage(
-      { type: 'farallones:session', profile: publicProfile(profile) },
-      window.location.origin,
-    )
-    fetchProducts()
-      .then((products) => {
-        publishProducts(frameRef.current, products)
-        setStatus('ready')
-      })
-      .catch(() => {
-        setStatus('demo')
-      })
-  }
+  }, [profileKey, uid])
 
   return (
-    <main className="prototype-shell">
+    <div className="prototype-shell">
       {status === 'loading' && (
         <p className="firebase-status" role="status">
-          Cargando productos…
+          Conectando con Firebase…
+        </p>
+      )}
+      {status === 'error' && (
+        <p className="firebase-status is-error" role="alert">
+          No se pudo leer la base de datos. Revisa la URL de Realtime Database y sus reglas de acceso.
+        </p>
+      )}
+      {status === 'local' && (
+        <p className="firebase-status is-warn" role="status">
+          Modo local: Firebase no está configurado y los cambios no se guardan.
         </p>
       )}
       <iframe
@@ -58,9 +86,8 @@ function PrototypeFrame({ profile }) {
         src={prototypeUrl}
         title="Prototipos del Club Campestre Farallones"
         loading="eager"
-        onLoad={handleLoad}
       />
-    </main>
+    </div>
   )
 }
 

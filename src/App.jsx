@@ -1,23 +1,24 @@
 import { useEffect, useState } from 'react'
 import PrototypeFrame from './components/PrototypeFrame'
-import { LOGIN_PATH, findProfile, profiles, readSession, saveSession } from './services/profiles'
+import { DEMO_PASSWORD, LOGIN_PATH, profiles } from './services/profiles'
+import { initialSession, login, logout, watchSession } from './services/session'
 
 function Login({ onLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-    const profileKey = findProfile(email, password)
-
-    if (!profileKey) {
-      setError('Correo o contraseña incorrectos. Usa una cuenta demo para continuar.')
-      return
-    }
-
+    setBusy(true)
     setError('')
-    onLogin(profileKey)
+    try {
+      onLogin(await login(email, password))
+    } catch (loginError) {
+      setError(loginError.message || 'No se pudo iniciar sesión.')
+      setBusy(false)
+    }
   }
 
   return (
@@ -59,15 +60,18 @@ function Login({ onLogin }) {
             />
           </label>
           {error && <p className="login-error" role="alert">{error}</p>}
-          <button className="login-button" type="submit">Ingresar</button>
+          <button className="login-button" type="submit" disabled={busy}>
+            {busy ? 'Ingresando…' : 'Ingresar'}
+          </button>
         </form>
         <details className="demo-accounts">
           <summary>Cuentas demo</summary>
           <ul>
             {Object.values(profiles).map((profile) => (
-              <li key={profile.email}><b>{profile.label}:</b> {profile.email} / 123456</li>
+              <li key={profile.email}><b>{profile.label}:</b> {profile.email} / {DEMO_PASSWORD}</li>
             ))}
           </ul>
+          <p>Abre cada perfil en una pestaña distinta: los cambios de uno le llegan a los demás al instante.</p>
         </details>
       </section>
     </main>
@@ -75,12 +79,16 @@ function Login({ onLogin }) {
 }
 
 function App() {
-  const [profileKey, setProfileKey] = useState(readSession)
-  const profile = profileKey ? profiles[profileKey] : null
+  // undefined = comprobando la sesión con Firebase; null = sin sesión.
+  const [session, setSession] = useState(initialSession)
+  const profile = session ? profiles[session.key] : null
+
+  useEffect(() => watchSession(setSession), [])
 
   // Cada perfil vive en su propia ruta: sin sesión se va a /login y con sesión
   // a la página del perfil, aunque se escriba otra URL o se use "Atrás".
   useEffect(() => {
+    if (session === undefined) return undefined
     const target = profile ? profile.path : LOGIN_PATH
     const sync = () => {
       if (window.location.pathname !== target) window.history.replaceState(null, '', target)
@@ -89,20 +97,22 @@ function App() {
     document.title = profile ? `${profile.label} · Farallones` : 'Ingresar · Farallones'
     window.addEventListener('popstate', sync)
     return () => window.removeEventListener('popstate', sync)
-  }, [profile])
+  }, [session, profile])
 
-  function handleLogin(key) {
-    saveSession(key)
-    window.history.pushState(null, '', profiles[key].path)
-    setProfileKey(key)
+  async function handleLogout() {
+    await logout()
+    setSession(null)
   }
 
-  function handleLogout() {
-    saveSession(null)
-    setProfileKey(null)
+  if (session === undefined) {
+    return (
+      <main className="login-shell">
+        <p className="firebase-status" role="status">Comprobando la sesión…</p>
+      </main>
+    )
   }
 
-  if (!profile) return <Login onLogin={handleLogin} />
+  if (!profile) return <Login onLogin={setSession} />
 
   return (
     <main className="authenticated-shell">
@@ -110,7 +120,7 @@ function App() {
         <span>Sesión activa: <strong>{profile.label}</strong></span>
         <button type="button" onClick={handleLogout}>Cerrar sesión</button>
       </div>
-      <PrototypeFrame key={profileKey} profile={profile} />
+      <PrototypeFrame key={`${session.key}:${session.uid}`} profileKey={session.key} uid={session.uid} />
     </main>
   )
 }

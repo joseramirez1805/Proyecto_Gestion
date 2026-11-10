@@ -163,6 +163,11 @@ body {
   font-weight: 700;
 }
 
+.login-button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
 .login-error {
   margin: 0;
   color: #a2321f;
@@ -185,6 +190,10 @@ body {
   padding-left: 18px;
 }
 
+.demo-accounts p {
+  margin: 8px 0 0;
+}
+
 .prototype-shell {
   position: relative;
   width: 100%;
@@ -192,16 +201,23 @@ body {
 }
 
 .firebase-status {
-  position: fixed;
-  z-index: 20;
-  top: 12px;
-  right: 16px;
-  margin: 0;
+  width: fit-content;
+  margin: 10px auto 0;
   padding: 6px 12px;
   border-radius: 999px;
   color: #1b3328;
   background: #e4ece6;
   font-size: 13px;
+}
+
+.firebase-status.is-error {
+  color: #4a1a10;
+  background: #f8e0da;
+}
+
+.firebase-status.is-warn {
+  color: #4a3300;
+  background: #fbefd5;
 }
 
 .prototype-frame {
