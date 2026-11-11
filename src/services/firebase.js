@@ -100,3 +100,5 @@ export async function writeOps(ops) {
   }
   await update(ref(firebase().db), updates)
 }
+
+/* Hola, prueba Kevin*/
