@@ -24,8 +24,10 @@ El prototipo vive en un iframe para conservar su HTML imperativo aislado de Reac
 No hace falta crear datos ni usuarios a mano:
 
 - Las cuentas demo se crean en Authentication la primera vez que alguien ingresa con ellas.
-- Si la base está vacía, la primera sesión siembra el escenario inicial (un domingo de alta afluencia a la 1:10 p. m., ajustado a la hora real).
-- El **Director de A&B** tiene el botón **Reiniciar**, que devuelve la demo al escenario inicial para todos los perfiles.
+- Si la base está vacía, la primera sesión siembra solo el **menú** (`products`), con todos los platos disponibles. No hay pedidos, confirmaciones, lista de espera ni estados de mesa predeterminados: todas las mesas arrancan libres y todo lo demás se crea desde la app.
+- **Planeación** se calcula con lo que hay en Firebase: los comensales previstos salen de las confirmaciones de los socios (`arrivals`), la capacidad de la suma de puestos de las mesas (158) y la producción sugerida reparte esos comensales según los platos que realmente se han pedido (`orders` y `pase`).
+- El **mesero** toma pedidos desde el mapa de mesas: elige una mesa (libre, ocupada o que pidió la cuenta) y le toma el pedido. Si la mesa estaba libre, queda ocupada para todos.
+- El **Director de A&B** tiene el botón **Reiniciar**, que devuelve la demo al escenario inicial para todos los perfiles y borra todos los pedidos.
 
 ## Cuentas demo
 
@@ -49,12 +51,13 @@ La sesión vive por pestaña, así que se pueden abrir varios perfiles a la vez 
 | `orders/<key>` | Pedidos de cocina (propuesta A) |
 | `notices/<key>` | Avisos de platos agotados y su confirmación por el mesero |
 | `calls/<key>` | Llamadas del socio al mesero |
-| `plan` | Pronóstico por franja, sugerencia de horario y pedido al almacén (B) |
+| `plan` | Sugerencia de horario enviada y último pedido al almacén (B) |
 | `tables/<mesa>` | Estado de cada mesa en recepción (B) |
 | `arrivals/<key>` | Familias que confirmaron llegada (B) |
 | `waitlist/<key>` | Lista de espera (B) |
-| `pase/<key>` | Pedidos desde la carta, lista de chequeo, temperatura, calificación (C) |
-| `stats` | Indicadores de calidad del pase (C) |
+| `pase/<key>` | Pedidos desde la carta: lista de chequeo, temperatura, calentado, calificación y devolución (C). De aquí salen los indicadores de calidad del pase |
+| `seatings/<key>` | Comensales sentados en cada mesa y a qué hora: es la demanda "real" del panel del director |
+| `diners/<uid>` | Mesa en la que está cada socio (la que eligió o, si no, la que le asignó Recepción) |
 | `meta` | Fecha de siembra y número de meseros |
 
 En `products` se pueden agregar platos propios desde la consola. Cada uno necesita al menos `name` y `price`, y se aceptan estos alias: `nombre`, `precio`, `categoria`/`category` (por `cat`), `disponible`/`available`, `estado` (por `st`), `tiempoPreparacion` (por `min`), `opciones` (por `options`) y `rapido` (por `fast`). Un menú que ya exista no se reemplaza al sembrar.
